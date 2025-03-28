@@ -33,7 +33,7 @@ class Node:
     node_type: NODE_TYPE
 
     def __str__(self):
-        return f"{self.platform}{self.node_type}@{self.time}"
+        return f"{self.station}|{self.platform}|{self.node_type}@{self.time}"
 
     def __lt__(self, other):
         if not isinstance(other, Node):

@@ -105,7 +105,6 @@ class GTFSParser:
                 
             for (key, value) in self.stop_times.items():
                 self.stop_times[key] = sorted(value, key=lambda x: int(x['stop_sequence']))
-                print(self.stop_times[key])
             self.logger.debug("Loaded stop times")
 
             self.logger.debug("Loading Calendar...")
