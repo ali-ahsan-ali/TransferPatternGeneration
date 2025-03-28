@@ -3,9 +3,9 @@ from Parser import GTFSParser
 import pickle
 import logging
 from datetime import timedelta
-from typing import Optional
+from typing import List, Optional
 from Graph import Node, TimeExpandedGraph, NODE_TYPE, TRAVEL_TYPE
-from Djistras import MultiobjectiveDijkstra
+from Djistras import Label, MultiobjectiveDijkstra
 from utilities import parse_time_with_overflow
 import networkx as nx
 from pandas import *
@@ -64,9 +64,9 @@ class Main:
 
                 # Create transfer node at arrival time
                 transfer_node = Node(
-                    station_b, child_stop_b, arr_time, NODE_TYPE.TRANSFER
+                    station_b, child_stop_b, next_dep_time, NODE_TYPE.TRANSFER
                 )
-                self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.TRANSFER)
+                self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
 
             logger.debug(
                 f"Added vehicle connection from {station_a} to {station_b}"
@@ -206,33 +206,55 @@ def validate_transit_network(G: nx.DiGraph) -> bool:
     return True
 
 
+def reconstruct_path(label):
+    """Reconstruct the path from a label."""
+    logger.info(f"Reconstructing path from label with cost {label.cost}")
+    path = [label.node]
+    current = label
+    while current:
+        if current.node.node_type == NODE_TYPE.TRANSFER and  current.pred != None and current.pred.node.node_type != NODE_TYPE.TRANSFER:
+            path.append(current.node)
+        if current.pred == None:
+            path.append(current.node)
+        current = current.pred
+    path.reverse()
+    
+    # Log the full path
+    path_str = " -> ".join(str(node) for node in path)
+    logger.critical(f"Path: {path_str}")
+    logger.critical(f"Path length: {len(path)} nodes, cost: {label.cost}")
+    logger.critical("")
+    
+    return path
+    
 if __name__ == "__main__":
     # Configuration
     GTFS_PATH = "/home/ali/dev/TransferPatternGeneration/gtfs"
     PICKLE_PATH = "graph.pickle"
 
     try:
-        print("Start building graph")
+        logger.critical("Start building graph")
         graph = build_graph(GTFS_PATH, PICKLE_PATH).graph
-        print("Graph processing completed successfully")
+        logger.critical("Graph processing completed successfully")
 
         # Print some statistics
-        print(f"Total nodes: {len(graph.nodes())}")
-        print(f"Total edges: {len(graph.edges())}")
+        logger.critical(f"Total nodes: {len(graph.nodes())}")
+        logger.critical(f"Total edges: {len(graph.edges())}")
 
         print("validating", validate_transit_network(graph))
-
-        transfer_nodes = [
-            node
-            for node in graph.nodes()
-            if node.station == "207310" and node.node_type == NODE_TYPE.DEPARTURE
-        ]
         
-
-        for node in transfer_nodes[:1]:
-            upper_bound = (timedelta(hours=24), 5)
-            algorithm = MultiobjectiveDijkstra(graph, source=node, target="200059", upper_bound=upper_bound)
-            print(algorithm.run())
+        upper_bound = (timedelta(hours=24), 5)
+        try:
+            optimal_labels = pickle.load(open("/run/media/ali/42daa914-34fa-4444-9ad9-f80f804fcb11/train/optimal_labels.pickle", "rb"))
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError):
+            algorithm = MultiobjectiveDijkstra(graph, source="207310", target="200060", upper_bound=upper_bound)
+            algorithm.run()
+            optimal_labels = algorithm.find_target_labels(algorithm.L)
+            pickle.dump(optimal_labels, open("/run/media/ali/42daa914-34fa-4444-9ad9-f80f804fcb11/train/optimal_labels.pickle", "wb"))
+        
+        optimal_labels.sort(key=lambda tup: tup.node.time) 
+        for label in optimal_labels:
+            reconstruct_path(label)
 
     except Exception as e:
         print(f"Error building graph: {e}")
