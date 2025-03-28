@@ -28,12 +28,14 @@ class NODE_TYPE(Enum):
 @dataclass(frozen=True)
 class Node:
     station: str
+    station_string_name: str
     platform: str
+    platform_string_name: str
     time: timedelta
     node_type: NODE_TYPE
 
     def __str__(self):
-        return f"{self.station}|{self.platform}|{self.node_type}@{self.time}"
+        return f"{self.station_string_name}|{self.platform_string_name}|{self.node_type}@{self.time}"
 
     def __lt__(self, other):
         if not isinstance(other, Node):

@@ -48,8 +48,8 @@ class Main:
             arr_time = parse_time_with_overflow(arrival_time)
 
             # Create nodes
-            dep_node = Node(station_a, child_stop_a, dep_time, NODE_TYPE.DEPARTURE)
-            arr_node = Node(station_b, child_stop_b, arr_time, NODE_TYPE.ARRIVAL)
+            dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE)
+            arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL)
 
             # Add riding edge
             self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
@@ -58,13 +58,13 @@ class Main:
             if station_b_departure_time:
                 next_dep_time = parse_time_with_overflow(station_b_departure_time)
                 next_dep_node = Node(
-                    station_b, child_stop_b, next_dep_time, NODE_TYPE.DEPARTURE
+                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.DEPARTURE
                 )
                 self.graph.add_edge(arr_node, next_dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
 
                 # Create transfer node at arrival time
                 transfer_node = Node(
-                    station_b, child_stop_b, next_dep_time, NODE_TYPE.TRANSFER
+                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER
                 )
                 self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
 
