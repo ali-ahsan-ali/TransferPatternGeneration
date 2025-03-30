@@ -14,7 +14,7 @@ from pandas import *
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.CRITICAL,
     format="%(asctime)s - %(levelname)s - %(name)s - %(funcName)s:%(lineno)d - %(message)s",
     handlers=[
         logging.FileHandler("main.log", mode="w")
@@ -108,6 +108,35 @@ class Main:
                         break
                     j += 1
 
+
+
+def validate_transit_network(G: nx.DiGraph) -> bool:
+    """
+    Validate network connectivity rules using NetworkX.
+
+    Rules:
+    - TRANSFER node can connect to TRANSFER or DEPARTURE nodes
+    - ARRIVAL node can connect to DEPARTURE or TRANSFER nodes
+    - DEPARTURE node can connect to ARRIVAL nodes
+    """
+    for nodeView in G.nodes(data=True):
+        node, _ = nodeView
+        node_type = node.node_type
+
+        for _, successor, _ in G.out_edges(node, data=True):
+            succ_type = successor.node_type
+
+            valid_connections = {
+                NODE_TYPE.TRANSFER: [NODE_TYPE.TRANSFER, NODE_TYPE.DEPARTURE],
+                NODE_TYPE.ARRIVAL: [NODE_TYPE.DEPARTURE, NODE_TYPE.TRANSFER],
+                NODE_TYPE.DEPARTURE: [NODE_TYPE.ARRIVAL],
+            }
+
+            if succ_type not in valid_connections.get(node_type, []):
+                return False
+
+    return True
+
 def build_graph(
     gtfs_path: str, output_pickle: str = "graph.pickle"
 ) -> TimeExpandedGraph:
@@ -176,37 +205,10 @@ def build_graph(
 
         # Save the graph
         print(f"Saving graph to {output_pickle}")
+        print("validating", validate_transit_network(graph))
         main.graph.save_to_pickle(output_pickle)
 
         return main.graph
-
-
-def validate_transit_network(G: nx.DiGraph) -> bool:
-    """
-    Validate network connectivity rules using NetworkX.
-
-    Rules:
-    - TRANSFER node can connect to TRANSFER or DEPARTURE nodes
-    - ARRIVAL node can connect to DEPARTURE or TRANSFER nodes
-    - DEPARTURE node can connect to ARRIVAL nodes
-    """
-    for nodeView in G.nodes(data=True):
-        node, _ = nodeView
-        node_type = node.node_type
-
-        for _, successor, _ in G.out_edges(node, data=True):
-            succ_type = successor.node_type
-
-            valid_connections = {
-                NODE_TYPE.TRANSFER: [NODE_TYPE.TRANSFER, NODE_TYPE.DEPARTURE],
-                NODE_TYPE.ARRIVAL: [NODE_TYPE.DEPARTURE, NODE_TYPE.TRANSFER],
-                NODE_TYPE.DEPARTURE: [NODE_TYPE.ARRIVAL],
-            }
-
-            if succ_type not in valid_connections.get(node_type, []):
-                return False
-
-    return True
 
 
 def reconstruct_path(label):
@@ -236,8 +238,6 @@ if __name__ == "__main__":
         # Print some statistics
         logger.critical(f"Total nodes: {len(graph.nodes())}")
         logger.critical(f"Total edges: {len(graph.edges())}")
-
-        print("validating", validate_transit_network(graph))
         
         upper_bound = (timedelta(hours=24), 5)
         try:

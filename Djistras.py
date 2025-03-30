@@ -11,7 +11,7 @@ import pickle
 
 # Set up logging with only critical messages
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.CRITICAL,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("/second/train/multiobjective_dijkstra.log", mode="w")
@@ -35,6 +35,8 @@ class MultiobjectiveDijkstra:
         """
         logger.critical(f"Initializing MultiobjectiveDijkstra from {source} to {target}")
         logger.critical(f"Graph: {len(graph.nodes())} nodes, {len(graph.edges())} edges")
+        logger.debug(f"Lower bounds: {lower_bounds}")
+        logger.debug(f"Upper bound: {upper_bound}")
         
         self.graph = graph
         self.source = source
@@ -44,6 +46,7 @@ class MultiobjectiveDijkstra:
 
         # Get the dimension of the cost vectors from the first edge
         self.d = 2
+        logger.debug(f"Cost vector dimension: {self.d}")
 
         # Initialize data structures
         self.H = []  # Priority queue
@@ -57,29 +60,41 @@ class MultiobjectiveDijkstra:
         # Initialize lastProcessedLabel for all arcs
         for u, v in graph.edges():
             self.lastProcessedLabel[(u, v)] = 0
+        
+        logger.debug("Data structures initialized successfully")
 
     def dominates(self, cost1, cost2):
         """Check if cost1 dominates cost2 (is better in all dimensions)."""
-        return all(cost1[i] <= cost2[i] for i in range(len(cost1))) and any(
+        result = all(cost1[i] <= cost2[i] for i in range(len(cost1))) and any(
             cost1[i] < cost2[i] for i in range(len(cost1))
         )
+        logger.debug(f"Dominance check: {cost1} {'dominates' if result else 'does not dominate'} {cost2}")
+        return result
 
     def is_dominated(self, cost, label_set):
         """Check if cost is dominated by any cost in label_set."""
         if not label_set:
+            logger.debug(f"Label set empty, cost {cost} is not dominated")
             return False
-            
-        return any(self.dominates(label.cost, cost) for label in label_set)
+        
+        result = any(self.dominates(label.cost, cost) for label in label_set)
+        logger.debug(f"Cost {cost} is {'dominated' if result else 'not dominated'} by label set of size {len(label_set)}")    
+        return result
 
     def insert_priority_queue(self, label):
         """Insert a label into the priority queue (ordered lexicographically)."""
+        logger.debug(f"Inserting label for node {label.node} with cost {label.cost} into priority queue")
         heapq.heappush(self.H, (label.cost, id(label), label))
+        logger.debug(f"Priority queue size after insertion: {len(self.H)}")
 
     def extract_lexmin(self):
         """Extract the lexicographically smallest label from the priority queue."""
         if not self.H:
+            logger.debug("Priority queue is empty, returning None")
             return None
         _, _, label = heapq.heappop(self.H)
+        logger.debug(f"Extracted label for node {label.node} with cost {label.cost} from priority queue")
+        logger.debug(f"Priority queue size after extraction: {len(self.H)}")
         return label
 
     def nextCandidateLabel(
@@ -88,16 +103,21 @@ class MultiobjectiveDijkstra:
         """
         Find the next candidate label for node v by processing unprocessed labels from predecessors.
         """
+        logger.debug(f"Finding next candidate label for node {v}")
+        
         # Initialize with max possible label
         label_v = Label(node=v, cost=(timedelta.max, float('inf')), pred=None)
 
         # For each incoming neighbor u
         incoming_neighbors = list(self.graph.predecessors(v))
+        logger.debug(f"Node {v} has {len(incoming_neighbors)} incoming neighbors")
         
         for u in incoming_neighbors:
             # Get the range of unprocessed labels
             start_idx = self.lastProcessedLabel.get((u, v), 0)
             end_idx = len(L[u])
+            
+            logger.debug(f"Processing labels from neighbor {u} (index range: {start_idx}-{end_idx})")
             
             # Process all unprocessed labels from u
             for k in range(start_idx, end_idx):
@@ -113,13 +133,19 @@ class MultiobjectiveDijkstra:
                     pred=label_u
                 )
                 
+                logger.debug(f"Generated new label with cost {label_new.cost} from label at node {u} with cost {label_u.cost}")
+                
                 # Update last processed label index
                 self.lastProcessedLabel[(u, v)] = k
                 
                 # Prune
                 if label_new.cost[0] < self.upper_bound[0] and label_new.cost[1] < self.upper_bound[1]:
+                    logger.debug(f"Label satisfies upper bound constraints: {label_new.cost} < {self.upper_bound}")
+                    
                     # Check if the new cost is dominated by any efficient label at v
                     if not self.is_dominated(label_new.cost, L[v]):
+                        logger.debug(f"Label is not dominated by existing labels at node {v}")
+                        
                         is_lexographically_smaller = True
                         for label in L[v]:
                             if not all(label_new.cost[i] < label.cost[i] for i in range(len(label_new.cost))):
@@ -127,13 +153,18 @@ class MultiobjectiveDijkstra:
                                 break
                         
                         if is_lexographically_smaller:
+                            logger.debug(f"Found lexicographically smaller label with cost {label_new.cost}")
                             label_v = label_new
                             break  # Stop after finding first suitable label
+                else:
+                    logger.debug(f"Label pruned: {label_new.cost} exceeds upper bound {self.upper_bound}")
         
         # Return None if no suitable label found
         if label_v.cost[0] == timedelta.max and label_v.cost[1] == float('inf'):
+            logger.debug(f"No suitable candidate label found for node {v}")
             return None
         
+        logger.debug(f"Selected candidate label for node {v} with cost {label_v.cost}")
         return label_v
 
     def propagate(
@@ -143,48 +174,61 @@ class MultiobjectiveDijkstra:
         Propagate a label to node w.
         """
         v = label.node
+        logger.debug(f"Propagating label from node {v} to node {w}")
 
         # Get the arc cost
         arc_cost = self.graph[v][w]["cost"]
         arc_penalty = self.graph[v][w]["penalty"]
+        logger.debug(f"Arc cost: {arc_cost}, penalty: {arc_penalty}")
 
         # Compute the new cost
         new_cost = (label.cost[0] + arc_cost, label.cost[1] + arc_penalty)
+        logger.debug(f"New cost after propagation: {new_cost}")
         
         # Prune
         if new_cost[0] > self.upper_bound[0] or new_cost[1] > self.upper_bound[1]:
+            logger.debug(f"Label pruned: {new_cost} exceeds upper bound {self.upper_bound}")
             return priority_queue
         
         # Check if the new label is dominated
         if not self.is_dominated(new_cost, L[w]):
+            logger.debug(f"New label is not dominated by existing labels at node {w}")
             new_label = Label(node=w, cost=new_cost, pred=label)
             acted = False
             for (index, label) in enumerate(self.H):
                 if label[2].node == w:
+                    logger.debug(f"Updating existing label for node {w} in priority queue")
                     self.H[index] = (new_cost, id(new_label), new_label)
                     acted = True
                     break
             
             if not acted:
                 # Insert into priority queue
+                logger.debug(f"Inserting new label for node {w} into priority queue")
                 self.insert_priority_queue(new_label)
-        
+            
+        else:
+            logger.debug(f"New label is dominated by existing labels at node {w}")
+            
         return priority_queue
 
     def run(self):
+        logger.debug("Starting run method to find matching source node")
         for node in self.graph.nodes():
             if node.station == self.source and node.node_type == NODE_TYPE.TRANSFER:
-                logger.critical(node)
+                logger.debug(f"Found matching source node: {node}")
                 self.run_for_source(source_node=node)
-    
+        
     def run_for_source(self, source_node):
         """Run the Multiobjective Dijkstra Algorithm."""
         logger.critical("Starting MultiobjectiveDijkstra algorithm")
+        logger.debug(f"Source node: {source_node}")
         
         # Initialize source label
         source_label = Label(
             node=source_node, cost=(timedelta(), 0), pred=None
         )
+        logger.debug(f"Created initial source label with cost {source_label.cost}")
         self.insert_priority_queue(source_label)
 
         iteration = 0
@@ -199,22 +243,30 @@ class MultiobjectiveDijkstra:
                 break
 
             v = current_label.node
+            logger.debug(f"Processing node {v} with cost {current_label.cost} at iteration {iteration}")
 
             # Add to efficient labels
             self.L[v].append(current_label)
+            logger.debug(f"Added label to efficient labels for node {v}. Total labels: {len(self.L[v])}")
 
             # Find next candidate label for v
+            logger.debug(f"Finding next candidate label for node {v}")
             next_label = self.nextCandidateLabel(
                 v, self.L, upper_bound=self.upper_bound
             )
 
             if next_label:
+                logger.debug(f"Found next candidate label for node {v} with cost {next_label.cost}")
                 self.insert_priority_queue(next_label)
+            else:
+                logger.debug(f"No next candidate label found for node {v}")
 
             # Propagate to outgoing neighbors
             outgoing_neighbors = list(self.graph.successors(v))
+            logger.debug(f"Node {v} has {len(outgoing_neighbors)} outgoing neighbors")
             
             for w in outgoing_neighbors:
+                logger.debug(f"Propagating to neighbor {w}")
                 self.H = self.propagate(
                     current_label, w, self.H, self.L, upper_bound=self.upper_bound
                 )
@@ -225,35 +277,25 @@ class MultiobjectiveDijkstra:
 
         logger.critical(f"Algorithm terminated after {iteration} iterations")
         logger.critical(f"Total efficient labels found: {sum(len(labels) for labels in self.L.values())}")
+        logger.debug("Run complete")
         
         return 
-    
-    def arrival_chain_algorithm(labels: List[Label]):
-        """Reconstruct the path from a label."""
-        path = [label.node]
-        current = label
-        while current:
-            if current.node.node_type == NODE_TYPE.TRANSFER and current.pred != None and current.pred.node.node_type != NODE_TYPE.TRANSFER:
-                path.append(current.node)
-            if current.pred == None:
-                path.append(current.node)
-            current = current.pred
-        path.reverse()
-        
-        return path
 
     def find_target_labels(self, efficient_labels: Dict):
         """
         Find labels for nodes matching the target station and optional node type.
         """
         logger.critical("Finding target labels across efficient labels")
+        logger.debug(f"Target station: {self.target}")
         target_labels = []
         for node, labels in efficient_labels.items():
             if self.is_target_node(node):
+                logger.debug(f"Found matching target node: {node} with {len(labels)} labels")
                 target_labels.extend(labels)
         
         # Sort target labels lexicographically
         target_labels.sort(key=lambda label: label.cost)
+        logger.debug(f"Sorted {len(target_labels)} target labels")
         
         logger.critical(f"Found {len(target_labels)} labels matching target criteria")
         
@@ -263,4 +305,6 @@ class MultiobjectiveDijkstra:
         """
         Check if a node matches the target criteria.
         """
-        return node.station == self.target and node.node_type == NODE_TYPE.ARRIVAL
+        result = node.station == self.target and node.node_type == NODE_TYPE.ARRIVAL
+        logger.debug(f"Node {node} is {'a' if result else 'not a'} target node")
+        return result
