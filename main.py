@@ -67,7 +67,6 @@ class Main:
                     station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER
                 )
                 self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
-
             logger.debug(
                 f"Added vehicle connection from {station_a} to {station_b}"
             )
@@ -98,7 +97,8 @@ class Main:
                     nodes[last_station_transfer[nodes[i].station]], nodes[i], TRAVEL_TYPE.WAITINGCHAIN
                 )
                 last_station_transfer[nodes[i].station] = i
-            elif nodes[i].node_type == NODE_TYPE.ARRIVAL:
+            
+            if nodes[i].node_type == NODE_TYPE.ARRIVAL:
                 j = i + 1
                 while j < total_nodes:
                     if nodes[j].station == nodes[i].station and nodes[j].node_type == NODE_TYPE.TRANSFER and nodes[j].time - nodes[i].time > timedelta(minutes=2):
@@ -135,8 +135,8 @@ def build_graph(
             length = len(stop_times)
             if length <= 1:
                 continue
-
-            service_id = main.parser.trips[trip_id]["service_id"]
+            
+            service_id = main.parser.trips[stop_times[0]["trip_id"]]["service_id"]
             days_running = main.parser.calendar.loc[
                 main.parser.calendar["service_id"] == service_id
             ].to_dict("records")[0]
@@ -144,6 +144,9 @@ def build_graph(
                 continue
 
             # Process each stop in the trip
+            logger.warning(f"{stop_times[0]["trip_id"]}, {trip_id}")
+            if trip_id == "super_trip_544823":
+                logger.warning(stop_times)
             for i in range(length - 1):
                 j = i+1
                 if stop_times[i]["pickup_type"] == 0 or isna(stop_times[i]["pickup_type"]):
@@ -208,7 +211,6 @@ def validate_transit_network(G: nx.DiGraph) -> bool:
 
 def reconstruct_path(label):
     """Reconstruct the path from a label."""
-    logger.info(f"Reconstructing path from label with cost {label.cost}")
     path = [label.node]
     current = label
     while current:
@@ -218,14 +220,8 @@ def reconstruct_path(label):
             path.append(current.node)
         current = current.pred
     path.reverse()
-    
-    # Log the full path
-    path_str = " -> ".join(str(node) for node in path)
-    logger.critical(f"Path: {path_str}")
-    logger.critical(f"Path length: {len(path)} nodes, cost: {label.cost}")
-    logger.critical("")
-    
-    return path
+   
+    return (path, label.cost)
     
 if __name__ == "__main__":
     # Configuration
@@ -245,17 +241,41 @@ if __name__ == "__main__":
         
         upper_bound = (timedelta(hours=24), 5)
         try:
-            optimal_labels = pickle.load(open("/run/media/ali/42daa914-34fa-4444-9ad9-f80f804fcb11/train/optimal_labels.pickle", "rb"))
+            optimal_labels = pickle.load(open("/second/train/optimal_labels.pickle", "rb"))
         except (FileNotFoundError, pickle.UnpicklingError, EOFError):
             algorithm = MultiobjectiveDijkstra(graph, source="207310", target="200060", upper_bound=upper_bound)
             algorithm.run()
             optimal_labels = algorithm.find_target_labels(algorithm.L)
-            pickle.dump(optimal_labels, open("/run/media/ali/42daa914-34fa-4444-9ad9-f80f804fcb11/train/optimal_labels.pickle", "wb"))
+            pickle.dump(optimal_labels, open("/second/train/optimal_labels.pickle", "wb"))
         
-        optimal_labels.sort(key=lambda tup: tup.node.time) 
+        optimal_labels_fixed = {}
+        optimal_departure_set = set()
         for label in optimal_labels:
-            reconstruct_path(label)
+            path = reconstruct_path(label)
+            if path[0][0] not in optimal_labels_fixed:
+                optimal_labels_fixed[path[0][0]] = []
+            optimal_labels_fixed[path[0][0]].append(path)
+            optimal_departure_set.add(path[0][0])
+        
+        sorted_optimal=list()
+        for x in optimal_departure_set:
+            sorted_optimal.append(x)
+        
+        sorted_optimal = sorted(sorted_optimal, key=lambda x: x.time)
+        for x in sorted_optimal:
+            logger.critical(x)
 
+        for key in sorted_optimal:
+            value = optimal_labels_fixed[key]
+            optimal_labels_fixed[key] = [sorted(x, key=lambda tup: x[1]) for x in value]
+            
+            path = optimal_labels_fixed[key][0][0]
+                
+            # Log the full path
+            path_str = " -> ".join(str(node) for node in path)
+            logger.critical(f"Path: {path_str}")
+            logger.critical(f"Path length: {len(path)} nodes, cost: {optimal_labels_fixed[key][0][1]}")
+        
     except Exception as e:
         print(f"Error building graph: {e}")
         raise

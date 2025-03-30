@@ -87,9 +87,13 @@ class GTFSParser:
             )
 
             # Process stop times
-            for key, value in initial_trips.items():
-                self.trips[key] = value
 
+            # Process initial trips
+            for key, value in initial_trips.items():
+                self.trips[key] = value  # Keep a copy of original trips
+
+            # remove 01/10 to a single using 0 and 0 respectively 
+            
             self.logger.debug("Loading stop times...")
             stop_times_initial = pd.read_csv(
                 os.path.join(self.gtfs_dir, "stop_times.txt"),
@@ -99,12 +103,32 @@ class GTFSParser:
 
             # Process stop times
             for index, row in stop_times_initial.iterrows():
-                if row["trip_id"] not in self.stop_times:
-                    self.stop_times[row["trip_id"]] = []
-                self.stop_times[row["trip_id"]].append(row.to_dict())
+                block_id = self.trips[row["trip_id"]]["block_id"]
+                if block_id == "" or block_id == None:
+                    if row["trip_id"] not in self.stop_times:
+                        self.stop_times[row["trip_id"]] = []
+                    self.stop_times[row["trip_id"]].append(row.to_dict())
+                else:
+                    if f"super_trip_{block_id}" not in self.stop_times:
+                        self.stop_times[f"super_trip_{block_id}"] = []
+                    self.stop_times[f"super_trip_{block_id}"].append(row.to_dict())
                 
             for (key, value) in self.stop_times.items():
-                self.stop_times[key] = sorted(value, key=lambda x: int(x['stop_sequence']))
+                value = sorted(value, key=lambda x: x['arrival_time'])
+                new_val = []
+                prev = None
+                for val in value:
+                    if prev and prev["pickup_type"] == 1 and prev["drop_off_type"] == 0 and val["drop_off_type"] == 1 and val["pickup_type"] == 0 and prev["stop_id"] == val["stop_id"]:
+                        # Remove dup
+                        self.logger.debug("Removing dup %s", val)
+                        new_val.pop()
+                    if val["pickup_type"] != 0 and val["drop_off_type"] != 0:
+                        self.logger.debug("Removing useless %s", val)
+                        continue
+                    new_val.append(val)
+                    prev = val
+                self.stop_times[key] = new_val
+                
             self.logger.debug("Loaded stop times")
 
             self.logger.debug("Loading Calendar...")

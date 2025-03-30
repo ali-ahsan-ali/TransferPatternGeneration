@@ -11,10 +11,10 @@ import pickle
 
 # Set up logging with only critical messages
 logging.basicConfig(
-    level=logging.CRITICAL,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("/run/media/ali/42daa914-34fa-4444-9ad9-f80f804fcb11/train/multiobjective_dijkstra.log", mode="w")
+        logging.FileHandler("/second/train/multiobjective_dijkstra.log", mode="w")
     ]
 )
 logger = logging.getLogger(__name__)
@@ -163,6 +163,7 @@ class MultiobjectiveDijkstra:
                 if label[2].node == w:
                     self.H[index] = (new_cost, id(new_label), new_label)
                     acted = True
+                    break
             
             if not acted:
                 # Insert into priority queue
@@ -229,7 +230,6 @@ class MultiobjectiveDijkstra:
     
     def arrival_chain_algorithm(labels: List[Label]):
         """Reconstruct the path from a label."""
-        logger.critical(f"Reconstructing path from label with cost {label.cost}")
         path = [label.node]
         current = label
         while current:
