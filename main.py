@@ -1,3 +1,4 @@
+from collections import defaultdict
 import sys
 from Parser import GTFSParser
 import pickle
@@ -202,16 +203,20 @@ def build_graph(
         # Process transfer connections
         print("Processing transfer connections...")
         main.process_transfers()
+        
+        # Validate        
+        if validate_transit_network(main.graph.graph):
 
-        # Save the graph
-        print(f"Saving graph to {output_pickle}")
-        print("validating", validate_transit_network(graph))
-        main.graph.save_to_pickle(output_pickle)
-
+            # Save the graph
+            print(f"Validation successful. Saving graph to {output_pickle}")
+            main.graph.save_to_pickle(output_pickle)
+        else :
+            print(f"Validation unsuccessful. Not Saving graph!!!")
+        
         return main.graph
 
 
-def reconstruct_path(label):
+def reconstruct_path(label: Label):
     """Reconstruct the path from a label."""
     path = [label.node]
     current = label
@@ -240,41 +245,43 @@ if __name__ == "__main__":
         logger.critical(f"Total edges: {len(graph.edges())}")
         
         upper_bound = (timedelta(hours=24), 5)
+        algorithm = MultiobjectiveDijkstra(graph, source="207310", target="200060", upper_bound=upper_bound)
         try:
             optimal_labels = pickle.load(open("/second/train/optimal_labels.pickle", "rb"))
         except (FileNotFoundError, pickle.UnpicklingError, EOFError):
-            algorithm = MultiobjectiveDijkstra(graph, source="207310", target="200060", upper_bound=upper_bound)
             algorithm.run()
             optimal_labels = algorithm.find_target_labels(algorithm.L)
             pickle.dump(optimal_labels, open("/second/train/optimal_labels.pickle", "wb"))
         
-        optimal_labels_fixed = {}
-        optimal_departure_set = set()
-        for label in optimal_labels:
-            path = reconstruct_path(label)
-            if path[0][0] not in optimal_labels_fixed:
-                optimal_labels_fixed[path[0][0]] = []
-            optimal_labels_fixed[path[0][0]].append(path)
-            optimal_departure_set.add(path[0][0])
+        algorithm.arrival_chain_algorithm(optimal_labels)
         
-        sorted_optimal=list()
-        for x in optimal_departure_set:
-            sorted_optimal.append(x)
+        # optimal_labels_fixed = {}
+        # optimal_departure_set = set()
+        # for label in optimal_labels:
+        #     path = reconstruct_path(label)
+        #     if path[0][0] not in optimal_labels_fixed:
+        #         optimal_labels_fixed[path[0][0]] = []
+        #     optimal_labels_fixed[path[0][0]].append(path)
+        #     optimal_departure_set.add(path[0][0])
         
-        sorted_optimal = sorted(sorted_optimal, key=lambda x: x.time)
-        for x in sorted_optimal:
-            logger.critical(x)
+        # sorted_optimal=list()
+        # for x in optimal_departure_set:
+        #     sorted_optimal.append(x)
+        
+        # sorted_optimal = sorted(sorted_optimal, key=lambda x: x.time)
+        # for x in sorted_optimal:
+        #     logger.critical(x)
 
-        for key in sorted_optimal:
-            value = optimal_labels_fixed[key]
-            optimal_labels_fixed[key] = [sorted(x, key=lambda tup: x[1]) for x in value]
+        # for key in sorted_optimal:
+        #     value = optimal_labels_fixed[key]
+        #     optimal_labels_fixed[key] = [sorted(x, key=lambda tup: x[1]) for x in value]
             
-            path = optimal_labels_fixed[key][0][0]
+        #     path = optimal_labels_fixed[key][0][0]
                 
-            # Log the full path
-            path_str = " -> ".join(str(node) for node in path)
-            logger.critical(f"Path: {path_str}")
-            logger.critical(f"Path length: {len(path)} nodes, cost: {optimal_labels_fixed[key][0][1]}")
+        #     # Log the full path
+        #     path_str = " -> ".join(str(node) for node in path)
+        #     logger.critical(f"Path: {path_str}")
+        #     logger.critical(f"Path length: {len(path)} nodes, cost: {optimal_labels_fixed[key][0][1]}")
         
     except Exception as e:
         print(f"Error building graph: {e}")

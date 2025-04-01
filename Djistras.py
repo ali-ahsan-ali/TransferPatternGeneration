@@ -1,10 +1,10 @@
 import sys
 from Graph import Node
 import heapq
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 import logging
 import networkx as nx
-from typing import Set, List, Dict
+from typing import Any, Set, List, Dict, Tuple
 from datetime import datetime, timedelta
 from Graph import Node, NODE_TYPE
 import pickle
@@ -19,7 +19,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-Label = namedtuple("Label", ["node", "cost", "pred"])
+class Label:
+    def __init__(self, node: Node, cost: Tuple, pred: 'Label' = None):
+        self.node = node
+        self.cost = cost
+        self.pred = pred
+    
+    def __repr__(self):
+        """Pretty print the label with its predecessor chain."""
+        return self._format_label()
+    
+    def _format_label(self, indent=0):
+        """Format this label with proper indentation."""
+        cost_str = f"({self.cost[0]}, {self.cost[1]})" if isinstance(self.cost, tuple) else str(self.cost)
+        result = f"Label(node={self.node}, cost={cost_str}"
+        
+        if self.pred is not None:
+            pred_str = self.pred._format_label(indent + 2)
+            result += f",\npred={pred_str}"
+        else:
+            result += ", pred=None"
+        
+        return result
+    
+    def get_path_string(self):
+        """Generate a string showing the path from source to this label."""
+        path = []
+        current = self
+        while current:
+            node_info = f"{current.node}"
+            cost_info = f"({current.cost[0]}, {current.cost[1]})" if isinstance(current.cost, tuple) else str(current.cost)
+            path.append(f"{node_info} - Cost: {cost_info}")
+            current = current.pred
+        
+        path.reverse()
+        return "\n→ ".join(path)
 
 class MultiobjectiveDijkstra:
     def __init__(
@@ -308,3 +342,70 @@ class MultiobjectiveDijkstra:
         result = node.station == self.target and node.node_type == NODE_TYPE.ARRIVAL
         logger.debug(f"Node {node} is {'a' if result else 'not a'} target node")
         return result
+
+    def arrival_chain_algorithm(self, optimal_labels: List[Label]):
+        # Group by arrival time and sort times
+        arrival_times = defaultdict(list)
+        for label in optimal_labels:
+            arrival_time = label.node.time  # Assuming the first element is arrival time
+            if not self.is_dominated(label.cost, arrival_times[arrival_time]):
+                arrival_times[arrival_time] = [
+                    existing_label for existing_label in arrival_times[arrival_time]
+                    if not self.dominates(label.cost, existing_label.cost)
+                ]
+                arrival_times[arrival_time].append(label)
+        
+        sorted_times = sorted(arrival_times.keys())
+        
+        # Apply the arrival chain algorithm
+        prev_labels = None
+    
+        for i, time in enumerate(sorted_times):
+            current_labels = arrival_times[time]
+            
+            new_prev_labels = []
+            if i > 0:
+                time_to_add_to_prev_labels = time - sorted_times[i-1]
+                for prev_label in prev_labels:
+                    prev_label.node.time = time
+                    new_time_cost = prev_label.cost[0] + time_to_add_to_prev_labels
+                    prev_label.cost = (new_time_cost, prev_label.cost[1])
+                    new_prev_labels.append(prev_label)
+
+            candidate_labels = current_labels + new_prev_labels
+            
+            for label in new_prev_labels:
+                if not self.is_dominated(label.cost, current_labels):
+                    current_labels = [
+                        existing_label for existing_label in current_labels
+                        if not self.dominates(label.cost, existing_label.cost)
+                    ]
+                    current_labels.append(label)
+                    
+            # Take the best with least travel then with least transfer cost for each arrival
+            sorted_current_labels = sorted(current_labels, key=lambda label: label.cost)
+            arrival_times[time] = sorted_current_labels
+
+            prev_labels = current_labels
+    
+        sorted_times = sorted(arrival_times.keys())
+        for key in sorted_times:
+            for label in arrival_times[key]:
+                self.reconstruct_path(label)
+        
+    def reconstruct_path(self, label: Label):
+        """Reconstruct the path from a label."""
+        path = [label.node]
+        current = label
+        while current:
+            if current.node.node_type == NODE_TYPE.TRANSFER and  current.pred != None and current.pred.node.node_type != NODE_TYPE.TRANSFER:
+                path.append(current.node)
+            if current.pred == None:
+                path.append(current.node)
+            current = current.pred
+        path.reverse()
+        
+        
+        path_str = " -> ".join(str(node) for node in path)
+        logger.critical(f"Cost: {label.cost}, Path: {path_str}")
+        # logger.critical(f"Path length: {len(path)} nodes, cost: {label.cost}")
