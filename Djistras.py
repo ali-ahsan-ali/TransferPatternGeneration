@@ -372,7 +372,7 @@ class MultiobjectiveDijkstra:
             if i > 0:
                 time_to_add_to_prev_labels = time - sorted_times[i-1]
                 for prev_label in prev_labels:
-                    new_node = Node(prev_label.node.station, prev_label.node.station_string_name, "", "", time, prev_label.node.node_type)
+                    new_node = Node(prev_label.node.station, prev_label.node.station_string_name, prev_label.node.platform, prev_label.node.platform_string_name, time, prev_label.node.node_type)
                     prev_label.node = new_node
                     new_time_cost = prev_label.cost[0] + time_to_add_to_prev_labels
                     prev_label.cost = (new_time_cost, prev_label.cost[1])
