@@ -60,6 +60,16 @@ class Label:
             return NotImplemented
         return self.cost < other.cost
     
+    def __eq__(self, other):
+        if not isinstance(other, Label):
+            return NotImplemented
+        return (self.node == other.node and 
+                self.cost == other.cost and 
+            self.pred == other.pred)
+
+    def __hash__(self):
+        return hash((self.node, self.cost, id(self.pred)))
+    
 class MultiobjectiveDijkstra:
     def __init__(
         self,
@@ -364,7 +374,7 @@ class MultiobjectiveDijkstra:
         
         # Apply the arrival chain algorithm
         prev_labels = None
-    
+        optimal_labels = []
         for i, time in enumerate(sorted_times):
             current_labels = arrival_times[time]
             
@@ -388,13 +398,28 @@ class MultiobjectiveDijkstra:
                     
             # Take the best with least travel then with least transfer cost for each arrival
             sorted_current_labels = sorted(current_labels, key=lambda label: label.cost)
-            arrival_times[time] = sorted_current_labels
+            optimal_labels.extend(sorted_current_labels)
 
             prev_labels = current_labels
     
+        arrival_times = defaultdict(list)
+        for label in optimal_labels:
+            arrival_time = label.node.time  # Assuming the first element is arrival time
+            if not self.is_dominated(label.cost, arrival_times[arrival_time]):
+                arrival_times[arrival_time] = set(
+                    [
+                        existing_label for existing_label in arrival_times[arrival_time]
+                        if not self.dominates(label.cost, existing_label.cost)
+                    ]
+                )
+                arrival_times[arrival_time].add(label)
+            
         sorted_times = sorted(arrival_times.keys())
+        
         for key in sorted_times:
+            arrival_times[key] = arrival_times[key]
             for label in arrival_times[key]:
+                logger.critical(f"ASDASDD  {key}")
                 self.reconstruct_path(label)
         
     def reconstruct_path(self, label: Label):
