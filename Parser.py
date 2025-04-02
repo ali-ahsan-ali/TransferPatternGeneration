@@ -118,13 +118,15 @@ class GTFSParser:
                 new_val = []
                 prev = None
                 for val in value:
-                    if prev and prev["pickup_type"] == 1 and prev["drop_off_type"] == 0 and val["drop_off_type"] == 1 and val["pickup_type"] == 0 and prev["stop_id"] == val["stop_id"]:
-                        # Remove dup
-                        self.logger.debug("Removing dup %s", val)
-                        new_val.pop()
                     if val["pickup_type"] != 0 and val["drop_off_type"] != 0:
                         self.logger.debug("Removing useless %s", val)
                         continue
+                    elif prev and prev["pickup_type"] == 1 and prev["drop_off_type"] == 0 and val["pickup_type"] == 0 and val["drop_off_type"] == 1 and prev["stop_id"] == val["stop_id"]:
+                         # Remove dup
+                        self.logger.critical("Removing dup %s", val)
+                        new_val.pop()
+                        val["drop_off_type"] = 0
+                        val["arrival_time"] = prev["arrival_time"]
                     new_val.append(val)
                     prev = val
                 self.stop_times[key] = new_val

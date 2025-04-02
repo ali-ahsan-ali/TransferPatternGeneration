@@ -25,6 +25,7 @@ class NODE_TYPE(Enum):
         return self.name
 
 
+@dataclass(frozen=True)
 class Node:
     station: str
     station_string_name: str
@@ -34,7 +35,12 @@ class Node:
     node_type: NODE_TYPE
 
     def __str__(self):
-        return f"{self.station}|{self.station_string_name}|{self.node_type}@{self.time}"
+        return f"{self.station_string_name}|{self.platform_string_name}|{self.node_type}@{self.time}"
+
+    def __lt__(self, other):
+        if not isinstance(other, Node):
+            return NotImplemented
+        return self.time < other.time
 
 
 class TimeExpandedGraph(object):
@@ -60,14 +66,12 @@ class TimeExpandedGraph(object):
 
     def add_edge(self, source: Node, destination: Node, travel_type: TRAVEL_TYPE):
         """Add an edge between nodes with optimized indexing."""
-        source_node_to_add = Node(station=source.station, station_string_name=source.station_string_name, platform="", platform_string_name="", time=source.time, node_type=source.node_type)
-        destination_node_to_add = Node(station=destination.station, station_string_name=destination.station_string_name, platform="", platform_string_name="", time=destination.time, node_type=destination.node_type)
-        self.add_node(source_node_to_add)
-        self.add_node(destination_node_to_add)
+        self.add_node(source)
+        self.add_node(destination)
         penalty = 1 if travel_type == TRAVEL_TYPE.TRANSFER else 0
         self.graph.add_edge(
-            source_node_to_add,
-            destination_node_to_add,
+            source,
+            destination,
             edge_type=travel_type,
             cost=destination.time - source.time,
             penalty=penalty,

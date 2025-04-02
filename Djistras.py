@@ -54,7 +54,12 @@ class Label:
         
         path.reverse()
         return "\n→ ".join(path)
-
+    
+    def __lt__(self, other):
+        if not isinstance(other, Node):
+            return NotImplemented
+        return self.cost < other.cost
+    
 class MultiobjectiveDijkstra:
     def __init__(
         self,
@@ -367,12 +372,11 @@ class MultiobjectiveDijkstra:
             if i > 0:
                 time_to_add_to_prev_labels = time - sorted_times[i-1]
                 for prev_label in prev_labels:
-                    prev_label.node.time = time
+                    new_node = Node(prev_label.node.station, prev_label.node.station_string_name, "", "", time, prev_label.node.node_type)
+                    prev_label.node = new_node
                     new_time_cost = prev_label.cost[0] + time_to_add_to_prev_labels
                     prev_label.cost = (new_time_cost, prev_label.cost[1])
                     new_prev_labels.append(prev_label)
-
-            candidate_labels = current_labels + new_prev_labels
             
             for label in new_prev_labels:
                 if not self.is_dominated(label.cost, current_labels):

@@ -1,10 +1,8 @@
-from collections import defaultdict
-import sys
 from Parser import GTFSParser
 import pickle
 import logging
 from datetime import timedelta
-from typing import List, Optional
+from typing import Optional
 from Graph import Node, TimeExpandedGraph, NODE_TYPE, TRAVEL_TYPE
 from Djistras import Label, MultiobjectiveDijkstra
 from utilities import parse_time_with_overflow
@@ -86,8 +84,8 @@ class Main:
 
         for i in range(total_nodes):
             processed += 1
-            if processed % 1000 == 0:  # Log progress every 1000 nodes
-                logger.info(
+            if processed % 10000 == 0:  # Log progress every 1000 nodes
+                logger.critical(
                     f"Processing transfers: {processed}/{total_nodes} nodes ({processed / total_nodes * 100:.2f}%)"
                 )
                 
@@ -99,7 +97,7 @@ class Main:
                 )
                 last_station_transfer[nodes[i].station] = i
             
-            if nodes[i].node_type == NODE_TYPE.ARRIVAL:
+            elif nodes[i].node_type == NODE_TYPE.ARRIVAL:
                 j = i + 1
                 while j < total_nodes:
                     if nodes[j].station == nodes[i].station and nodes[j].node_type == NODE_TYPE.TRANSFER and nodes[j].time - nodes[i].time > timedelta(minutes=2):
@@ -108,7 +106,6 @@ class Main:
                         )
                         break
                     j += 1
-
 
 
 def validate_transit_network(G: nx.DiGraph) -> bool:
@@ -159,9 +156,10 @@ def build_graph(
         # Process all trips
         total_trips = len(main.parser.stop_times)
         for index, (trip_id, stop_times) in enumerate(main.parser.stop_times.items()):
-            print(
-                f"Processing trip {index}/{total_trips} ({index / total_trips * 100:.2f}%)"
-            )
+            if index % 1000 == 0:  # Log progress every 1000 nodes
+                logger.debug(
+                    f"Processing trip {index}/{total_trips} ({index / total_trips * 100:.2f}%)"
+                )
             length = len(stop_times)
             if length <= 1:
                 continue
@@ -175,8 +173,6 @@ def build_graph(
 
             # Process each stop in the trip
             logger.warning(f"{stop_times[0]["trip_id"]}, {trip_id}")
-            if trip_id == "super_trip_544823":
-                logger.warning(stop_times)
             for i in range(length - 1):
                 j = i+1
                 if stop_times[i]["pickup_type"] == 0 or isna(stop_times[i]["pickup_type"]):
@@ -197,7 +193,7 @@ def build_graph(
                         stop_times[j]["arrival_time"],
                         stop_times[j].get(
                             "departure_time"
-                        ),  # Some stops might not have departure times
+                        ) 
                     )
 
         # Process transfer connections
@@ -254,34 +250,6 @@ if __name__ == "__main__":
             pickle.dump(optimal_labels, open("/second/train/optimal_labels.pickle", "wb"))
         
         algorithm.arrival_chain_algorithm(optimal_labels)
-        
-        # optimal_labels_fixed = {}
-        # optimal_departure_set = set()
-        # for label in optimal_labels:
-        #     path = reconstruct_path(label)
-        #     if path[0][0] not in optimal_labels_fixed:
-        #         optimal_labels_fixed[path[0][0]] = []
-        #     optimal_labels_fixed[path[0][0]].append(path)
-        #     optimal_departure_set.add(path[0][0])
-        
-        # sorted_optimal=list()
-        # for x in optimal_departure_set:
-        #     sorted_optimal.append(x)
-        
-        # sorted_optimal = sorted(sorted_optimal, key=lambda x: x.time)
-        # for x in sorted_optimal:
-        #     logger.critical(x)
-
-        # for key in sorted_optimal:
-        #     value = optimal_labels_fixed[key]
-        #     optimal_labels_fixed[key] = [sorted(x, key=lambda tup: x[1]) for x in value]
-            
-        #     path = optimal_labels_fixed[key][0][0]
-                
-        #     # Log the full path
-        #     path_str = " -> ".join(str(node) for node in path)
-        #     logger.critical(f"Path: {path_str}")
-        #     logger.critical(f"Path length: {len(path)} nodes, cost: {optimal_labels_fixed[key][0][1]}")
         
     except Exception as e:
         print(f"Error building graph: {e}")
