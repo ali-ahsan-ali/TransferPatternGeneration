@@ -1,3 +1,4 @@
+from typing import Optional
 import networkx as nx
 from enum import Enum
 import logging
@@ -33,14 +34,26 @@ class Node:
     platform_string_name: str
     time: timedelta
     node_type: NODE_TYPE
+    drop_off_type: Optional[int] = None # DOn't care unless its an arrival node
 
     def __str__(self):
-        return f"{self.station_string_name}|{self.platform_string_name}|{self.node_type}@{self.time}"
+        return f"{self.platform_string_name}|{self.node_type}|{self.drop_off_type}@{self.time}"
 
     def __lt__(self, other):
         if not isinstance(other, Node):
             return NotImplemented
         return self.time < other.time
+    
+    def __eq__(self, other):
+        if not isinstance(other, Node):
+            return NotImplemented
+        return (self.station == other.station and
+                self.station_string_name == other.station_string_name and
+                self.platform == other.platform and
+                self.platform_string_name == other.platform_string_name and
+                self.time == other.time and
+                self.node_type == other.node_type and 
+                self.drop_off_type == other.drop_off_type)
 
 
 class TimeExpandedGraph(object):

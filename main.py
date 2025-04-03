@@ -1,22 +1,23 @@
 from Parser import GTFSParser
 import pickle
 import logging
-from datetime import timedelta
-from typing import Optional
+from datetime import timedelta, datetime
+from typing import List, Optional
 from Graph import Node, TimeExpandedGraph, NODE_TYPE, TRAVEL_TYPE
 from Djistras import Label, MultiobjectiveDijkstra
 from utilities import parse_time_with_overflow
 import networkx as nx
 from pandas import *
 
-
+currentDT = datetime.now()
+FileName = currentDT.strftime("%Y%m%d%H%M%S")
 
 # Set up logging
 logging.basicConfig(
     level=logging.CRITICAL,
     format="%(asctime)s - %(levelname)s - %(name)s - %(funcName)s:%(lineno)d - %(message)s",
     handlers=[
-        logging.FileHandler("main.log", mode="w")
+        logging.FileHandler("log/" + FileName + "main.log", mode="w")
     ]
 )
 logger = logging.getLogger("main")
@@ -24,10 +25,10 @@ logger = logging.getLogger("main")
 logger.info("Initialized Main class and loaded GTFS data.")
         
 class Main:
-    def __init__(self, gtfs_path: str):
+    def __init__(self, gtfs_paths: List[str]):
         """Initialize Main class with GTFS data path."""
         self.graph = TimeExpandedGraph()
-        self.parser = GTFSParser(gtfs_path)
+        self.parser = GTFSParser(gtfs_paths)
         self.parser.load_gtfs_data()
 
     def add_vehicle_connection(
@@ -39,6 +40,8 @@ class Main:
         child_stop_b: str,
         arrival_time: str,
         station_b_departure_time: Optional[str] = None,
+        station_b_pickup_type: int = 0, 
+        station_b_dropoff_type: int = 0,
     ) -> None:
         """Add nodes and edges for a vehicle connection between stations."""
         try:
@@ -48,7 +51,7 @@ class Main:
 
             # Create nodes
             dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE)
-            arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL)
+            arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
 
             # Add riding edge
             self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
@@ -62,10 +65,15 @@ class Main:
                 self.graph.add_edge(arr_node, next_dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
 
                 # Create transfer node at arrival time
-                transfer_node = Node(
-                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER
-                )
-                self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
+                if station_b_pickup_type == 0:
+                    transfer_node = Node(
+                        station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER
+                    )
+                    self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
+                    
+                else:
+                    logger.debug(f"{station_a}, {self.parser.stops[station_a]["stop_name"]}, {child_stop_a} {self.parser.stops[station_b]["stop_name"]} {station_b}, {self.parser.stops[station_b]["stop_name"]} {child_stop_b} shits fucked for {station_b_pickup_type} at {next_dep_time}")
+            
             logger.debug(
                 f"Added vehicle connection from {station_a} to {station_b}"
             )
@@ -84,11 +92,10 @@ class Main:
 
         for i in range(total_nodes):
             processed += 1
-            if processed % 10000 == 0:  # Log progress every 1000 nodes
+            if processed % 1000 == 0:  # Log progress every 1000 nodes
                 logger.critical(
                     f"Processing transfers: {processed}/{total_nodes} nodes ({processed / total_nodes * 100:.2f}%)"
                 )
-                
             if nodes[i].station not in last_station_transfer and nodes[i].node_type == NODE_TYPE.TRANSFER:
                 last_station_transfer[nodes[i].station] = i
             elif nodes[i].node_type == NODE_TYPE.TRANSFER:
@@ -97,7 +104,7 @@ class Main:
                 )
                 last_station_transfer[nodes[i].station] = i
             
-            elif nodes[i].node_type == NODE_TYPE.ARRIVAL:
+            elif nodes[i].node_type == NODE_TYPE.ARRIVAL and nodes[i].drop_off_type == 0:
                 j = i + 1
                 while j < total_nodes:
                     if nodes[j].station == nodes[i].station and nodes[j].node_type == NODE_TYPE.TRANSFER and nodes[j].time - nodes[i].time > timedelta(minutes=2):
@@ -106,8 +113,9 @@ class Main:
                         )
                         break
                     j += 1
-
-
+            elif nodes[i].node_type == NODE_TYPE.ARRIVAL:
+                logger.debug(f"{nodes[i]} fucken cursed")
+                                        
 def validate_transit_network(G: nx.DiGraph) -> bool:
     """
     Validate network connectivity rules using NetworkX.
@@ -136,22 +144,22 @@ def validate_transit_network(G: nx.DiGraph) -> bool:
     return True
 
 def build_graph(
-    gtfs_path: str, output_pickle: str = "graph.pickle"
+    gtfs_paths: str, output_pickle: str = "graph.pickle"
 ) -> TimeExpandedGraph:
     """Build and save the time-expanded graph from GTFS data."""
     try:
         # Try to load existing graph
-        main = Main(gtfs_path)
+        main = Main(gtfs_paths)
 
         main.graph.load_from_pickle(output_pickle)
         print(f"Loaded existing graph from {output_pickle}")
 
         return main.graph
     except (FileNotFoundError, pickle.UnpicklingError, EOFError):
-        print(f"Building new graph from GTFS data at {gtfs_path}")
+        print(f"Building new graph from GTFS data at {gtfs_paths}")
 
         # Initialize main processor
-        main = Main(gtfs_path)
+        main = Main(gtfs_paths)
 
         # Process all trips
         total_trips = len(main.parser.stop_times)
@@ -168,13 +176,15 @@ def build_graph(
             days_running = main.parser.calendar.loc[
                 main.parser.calendar["service_id"] == service_id
             ].to_dict("records")[0]
-            if days_running["monday"] != 1 or days_running["start_date"] < 20250310:
+            
+            if days_running["monday"] != 1 or days_running["start_date"] < 20250403:
                 continue
 
             # Process each stop in the trip
             logger.warning(f"{stop_times[0]["trip_id"]}, {trip_id}")
             for i in range(length - 1):
                 j = i+1
+                    
                 if stop_times[i]["pickup_type"] == 0 or isna(stop_times[i]["pickup_type"]):
                     while j < length - 2 and stop_times[j]["drop_off_type"] != 0 and isna(stop_times[j]["drop_off_type"]):
                         j += 1
@@ -193,7 +203,9 @@ def build_graph(
                         stop_times[j]["arrival_time"],
                         stop_times[j].get(
                             "departure_time"
-                        ) 
+                        ),
+                        stop_times[j]["pickup_type"],
+                        stop_times[j]["drop_off_type"],
                     )
 
         # Process transfer connections
@@ -228,12 +240,12 @@ def reconstruct_path(label: Label):
     
 if __name__ == "__main__":
     # Configuration
-    GTFS_PATH = "/home/ali/dev/TransferPatternGeneration/gtfs"
+    GTFS_PATHS = ["/home/ali/dev/TransferPatternGeneration/gtfs/metro_GTFS_PROD_20250401121700", "/home/ali/dev/TransferPatternGeneration/gtfs/sydneytrains_GTFS_PROD_20250402140100"]
     PICKLE_PATH = "graph.pickle"
 
     try:
         logger.critical("Start building graph")
-        graph = build_graph(GTFS_PATH, PICKLE_PATH).graph
+        graph = build_graph(GTFS_PATHS, PICKLE_PATH).graph
         logger.critical("Graph processing completed successfully")
 
         # Print some statistics
@@ -241,15 +253,18 @@ if __name__ == "__main__":
         logger.critical(f"Total edges: {len(graph.edges())}")
         
         upper_bound = (timedelta(hours=24), 5)
-        algorithm = MultiobjectiveDijkstra(graph, source="207310", target="200060", upper_bound=upper_bound)
+        source = "207310"
+        target = "204420"
+        algorithm = MultiobjectiveDijkstra(graph, source=source, target=target, upper_bound=upper_bound)
         try:
-            optimal_labels = pickle.load(open("/second/train/optimal_labels.pickle", "rb"))
+            optimal_labels = pickle.load(open(f"/second/train/optimal_labels_{source}.pickle", "rb"))
+            target_labels = algorithm.find_target_labels(optimal_labels)
         except (FileNotFoundError, pickle.UnpicklingError, EOFError):
             algorithm.run()
-            optimal_labels = algorithm.find_target_labels(algorithm.L)
-            pickle.dump(optimal_labels, open("/second/train/optimal_labels.pickle", "wb"))
+            pickle.dump(algorithm.L, open(f"/second/train/optimal_labels_{source}.pickle", "wb"))
+            target_labels = algorithm.find_target_labels(algorithm.L)
         
-        algorithm.arrival_chain_algorithm(optimal_labels)
+        algorithm.arrival_chain_algorithm(target_labels)
         
     except Exception as e:
         print(f"Error building graph: {e}")

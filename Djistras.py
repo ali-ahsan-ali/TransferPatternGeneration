@@ -9,16 +9,45 @@ from datetime import datetime, timedelta
 from Graph import Node, NODE_TYPE
 import pickle
 
+
+currentDT = datetime.now()
+FileName = currentDT.strftime("%Y%m%d%H%M%S")
+
 # Set up logging with only critical messages
 logging.basicConfig(
     level=logging.CRITICAL,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("/second/train/multiobjective_dijkstra.log", mode="w")
+        logging.FileHandler(f"/second/train/multiobjective_dijkstra.log", mode="w")
     ]
 )
 logger = logging.getLogger(__name__)
 
+class Path:
+    def __init__(self, path: List[Node], cost: Tuple):
+        self.path = path
+        self.cost = cost
+    
+    def __repr__(self):
+        path_str = " -> ".join(str(node) for node in self.path)
+        return f"Cost: {self.cost}, Path: {path_str}"
+    
+    def __eq__(self, other):
+        if not isinstance(other, Path):
+            return NotImplemented
+        return (self.path == other.path and 
+                self.cost[0] == other.cost[0]and 
+                self.cost[1] == other.cost[1])
+    
+    def __hash__(self):
+        hashable_path = tuple(self.path)
+        # For timedelta objects
+        if isinstance(self.cost[0], timedelta):
+            hashable_cost = (self.cost[0].total_seconds(), self.cost[1])
+        else:
+            hashable_cost = self.cost
+        return hash((hashable_path, hashable_cost))
+    
 class Label:
     def __init__(self, node: Node, cost: Tuple, pred: 'Label' = None):
         self.node = node
@@ -129,7 +158,17 @@ class MultiobjectiveDijkstra:
         result = any(self.dominates(label.cost, cost) for label in label_set)
         logger.debug(f"Cost {cost} is {'dominated' if result else 'not dominated'} by label set of size {len(label_set)}")    
         return result
+    
+    def is_path_dominated(self, cost, path_set):
+        """Check if cost is dominated by any cost in label_set."""
+        if not path_set:
+            logger.debug(f"Label set empty, cost {cost} is not dominated")
+            return False
 
+        result = any(self.dominates(path.cost, cost) for path in path_set)
+        logger.debug(f"Cost {cost} is {'dominated' if result else 'not dominated'} by label set of size {len(path_set)}")    
+        return result
+    
     def insert_priority_queue(self, label):
         """Insert a label into the priority queue (ordered lexicographically)."""
         logger.debug(f"Inserting label for node {label.node} with cost {label.cost} into priority queue")
@@ -335,16 +374,16 @@ class MultiobjectiveDijkstra:
         Find labels for nodes matching the target station and optional node type.
         """
         logger.critical("Finding target labels across efficient labels")
-        logger.debug(f"Target station: {self.target}")
+        logger.critical(f"Target station: {self.target}")
         target_labels = []
         for node, labels in efficient_labels.items():
             if self.is_target_node(node):
-                logger.debug(f"Found matching target node: {node} with {len(labels)} labels")
+                logger.critical(f"Found matching target node: {node} with {len(labels)} labels")
                 target_labels.extend(labels)
         
         # Sort target labels lexicographically
         target_labels.sort(key=lambda label: label.cost)
-        logger.debug(f"Sorted {len(target_labels)} target labels")
+        logger.critical(f"Sorted {len(target_labels)} target labels")
         
         logger.critical(f"Found {len(target_labels)} labels matching target criteria")
         
@@ -371,7 +410,7 @@ class MultiobjectiveDijkstra:
                 arrival_times[arrival_time].append(label)
         
         sorted_times = sorted(arrival_times.keys())
-        
+
         # Apply the arrival chain algorithm
         prev_labels = None
         optimal_labels = []
@@ -401,10 +440,14 @@ class MultiobjectiveDijkstra:
             optimal_labels.extend(sorted_current_labels)
 
             prev_labels = current_labels
-    
+            
+        for key in optimal_labels:
+            logger.critical(self.reconstruct_path(key))
+            logger.critical(f"CUNT123")
+                
         arrival_times = defaultdict(list)
         for label in optimal_labels:
-            arrival_time = label.node.time  # Assuming the first element is arrival time
+            arrival_time = label.node.time  
             if not self.is_dominated(label.cost, arrival_times[arrival_time]):
                 arrival_times[arrival_time] = set(
                     [
@@ -416,25 +459,47 @@ class MultiobjectiveDijkstra:
             
         sorted_times = sorted(arrival_times.keys())
         
+        arrival_time_source = {}
         for key in sorted_times:
-            arrival_times[key] = arrival_times[key]
             for label in arrival_times[key]:
-                logger.critical(f"ASDASDD  {key}")
-                self.reconstruct_path(label)
+                new_path = self.reconstruct_path(label)
+                if new_path.path[0] not in arrival_time_source.keys():
+                    arrival_time_source[new_path.path[0]] = []
+                
+                if not self.is_path_dominated(new_path.cost, arrival_time_source[new_path.path[0]]):
+                    arrival_time_source[new_path.path[0]] = set(
+                        [
+                            existing_path for existing_path in arrival_time_source[new_path.path[0]]
+                            if not self.dominates(new_path.cost, existing_path.cost)
+                        ]
+                    )
+                    arrival_time_source[new_path.path[0]].add(new_path) 
         
-    def reconstruct_path(self, label: Label):
+        
+        logger.critical("Some shit\n\n\n\n\n\n")
+
+        transfer_pattern = set()        
+        for key, value in arrival_time_source.items():
+            logger.critical(key)
+            best = sorted(value, key=lambda path: path.cost)[0]
+            logger.critical(best)
+            node_list = []
+            for node in best.path:
+                node_list.append(node.platform_string_name)
+            
+            transfer_pattern.add(tuple(node_list))
+        
+        for x in transfer_pattern:
+            logger.critical(x)
+        
+    def reconstruct_path(self, label: Label) -> Path:
         """Reconstruct the path from a label."""
         path = [label.node]
         current = label
         while current:
-            if current.node.node_type == NODE_TYPE.TRANSFER and  current.pred != None and current.pred.node.node_type != NODE_TYPE.TRANSFER:
-                path.append(current.node)
-            if current.pred == None:
+            if current.node.node_type == NODE_TYPE.DEPARTURE and current.pred != None and current.pred.node.node_type == NODE_TYPE.TRANSFER:
                 path.append(current.node)
             current = current.pred
         path.reverse()
         
-        
-        path_str = " -> ".join(str(node) for node in path)
-        logger.critical(f"Cost: {label.cost}, Path: {path_str}")
-        # logger.critical(f"Path length: {len(path)} nodes, cost: {label.cost}")
+        return Path(path, label.cost)
