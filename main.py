@@ -253,14 +253,14 @@ if __name__ == "__main__":
         source = "207310"
         # target = "204420"
         target = "204420"
-        algorithm = MultiobjectiveDijkstra(graph, source=source, target=target, upper_bound=upper_bound)
+        algorithm = MultiobjectiveDijkstra(graph, source=source, upper_bound=upper_bound)
         try:
             optimal_labels = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/optimal_labels_{source}.pickle", "rb"))
-            target_labels = algorithm.find_target_labels(optimal_labels)
+            target_labels = algorithm.find_target_labels(optimal_labels,target)
         except (FileNotFoundError, pickle.UnpicklingError, EOFError):
             algorithm.run()
             pickle.dump(algorithm.L, open(f"/home/ali/dev/TransferPatternGeneration/optimal_labels_{source}.pickle", "wb"))
-            target_labels = algorithm.find_target_labels(algorithm.L)
+            target_labels = algorithm.find_target_labels(algorithm.L, target)
         
         algorithm.arrival_chain_algorithm(target_labels)
         

@@ -1,3 +1,4 @@
+import copy
 import sys
 from Graph import Node
 import heapq
@@ -15,7 +16,7 @@ FileName = currentDT.strftime("%Y%m%d%H%M%S")
 
 # Set up logging with only critical messages
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.CRITICAL,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(f"/home/ali/dev/TransferPatternGeneration/multiobjective_dijkstra.log", mode="w")
@@ -62,7 +63,7 @@ class Label:
     def _format_label(self, indent=0):
         """Format this label with proper indentation."""
         cost_str = f"({self.cost[0]}, {self.cost[1]})" if isinstance(self.cost, tuple) else str(self.cost)
-        result = f"Label(node={self.node}, cost={cost_str}, arrival_stations={self.arrival_stations}"
+        result = f"Label(node={self.node}, cost={cost_str}"
         
         if self.pred is not None:
             pred_str = self.pred._format_label(indent + 2)
@@ -106,21 +107,19 @@ class MultiobjectiveDijkstra:
         self,
         graph: nx.DiGraph,
         source: str,
-        target: str,
         lower_bounds=None,
         upper_bound=None,
     ):
         """
         Initialize the Multiobjective Dijkstra Algorithm using NetworkX DiGraph.
         """
-        logger.critical(f"Initializing MultiobjectiveDijkstra from {source} to {target}")
+        logger.critical(f"Initializing MultiobjectiveDijkstra from {source}")
         logger.critical(f"Graph: {len(graph.nodes())} nodes, {len(graph.edges())} edges")
         logger.debug(f"Lower bounds: {lower_bounds}")
         logger.debug(f"Upper bound: {upper_bound}")
         
         self.graph = graph
         self.source = source
-        self.target = target
         self.lower_bounds = lower_bounds if lower_bounds else {}
         self.upper_bound = upper_bound
 
@@ -379,15 +378,15 @@ class MultiobjectiveDijkstra:
         
         return 
 
-    def find_target_labels(self, efficient_labels: Dict):
+    def find_target_labels(self, efficient_labels: Dict, target: str):
         """
         Find labels for nodes matching the target station and optional node type.
         """
         logger.critical("Finding target labels across efficient labels")
-        logger.critical(f"Target station: {self.target}")
+        logger.critical(f"Target station: {target}")
         target_labels = []
         for node, labels in efficient_labels.items():
-            if self.is_target_node(node):
+            if self.is_target_node(node, target):
                 target_labels.extend(labels)
         
         # Sort target labels lexicographically
@@ -398,106 +397,89 @@ class MultiobjectiveDijkstra:
         
         return target_labels
     
-    def is_target_node(self, node: Node) -> bool:
+    def is_target_node(self, node: Node, target: str) -> bool:
         """
         Check if a node matches the target criteria.
         """
-        result = node.station == self.target and node.node_type == NODE_TYPE.ARRIVAL
+        result = node.station == target and node.node_type == NODE_TYPE.ARRIVAL
         return result
 
     def arrival_chain_algorithm(self, optimal_labels: List[Label]):
-        # Group by arrival time and sort times
+        # Group labels by arrival time
         arrival_times = defaultdict(list)
         for label in optimal_labels:
-            arrival_time = label.node.time  # Assuming the first element is arrival time
-            if not self.is_dominated(label.cost, arrival_times[arrival_time]):
-                arrival_times[arrival_time] = [
-                    existing_label for existing_label in arrival_times[arrival_time]
-                    if not self.dominates(label.cost, existing_label.cost)
-                ]
-                arrival_times[arrival_time].append(label)
+            arrival_time = label.node.time
+            arrival_times[arrival_time].append(label)
         
+        # Sort arrival times
         sorted_times = sorted(arrival_times.keys())
-
+        
         # Apply the arrival chain algorithm
-        optimal_labels = []
-        for i, time in enumerate(sorted_times):
-            current_labels = arrival_times[time]
-            new_current_labels = []
-            
-            if i > 0:
-                time_to_add_to_prev_labels = time - sorted_times[i-1]
-                
-                for prev_label in prev_labels:
-                    new_time_cost = prev_label.cost[0] + time_to_add_to_prev_labels
-                    new_cost = (new_time_cost, prev_label.cost[1])
-                    
-                    if not self.is_dominated(new_cost, current_labels):
-                        new_current_labels = [
-                            existing_label for existing_label in current_labels
-                            if not self.dominates(prev_label.cost, existing_label.cost)
-                        ]
-                        new_current_labels.append(prev_label)
-                
-                sorted_current_labels = sorted(new_current_labels, key=lambda label: label.cost)
-                optimal_labels.extend(sorted_current_labels)
-                
-            prev_labels = current_labels
-            
-        # If a path P contains a sequence (A → C → B)
-        # where station B appears later in the path, and there exists a direct connection (A → B) that would have arrived earlier 
-        # than when the path P eventually reaches B, then P is considered suboptimal and should be filtered out.
-        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
-        for label in optimal_labels:
-            logger.critical(self.reconstruct_path(label))
-                
-        arrival_times = defaultdict(list)
-        for label in optimal_labels:
-            arrival_time = label.node.time  
-            if not self.is_dominated(label.cost, arrival_times[arrival_time]):
-                arrival_times[arrival_time] = set(
-                    [
-                        existing_label for existing_label in arrival_times[arrival_time]
-                        if not self.dominates(label.cost, existing_label.cost)
-                    ]
-                )
-                arrival_times[arrival_time].add(label)
-            
-        sorted_times = sorted(arrival_times.keys())
+        final_optimal_labels = []
+        prev_labels = []
         
-        arrival_time_source = {}
-        for key in sorted_times:
-            for label in arrival_times[key]:
-                new_path = self.reconstruct_path(label)
-                if new_path.path[0] not in arrival_time_source.keys():
-                    arrival_time_source[new_path.path[0]] = []
-                
-                if not self.is_path_dominated(new_path.cost, arrival_time_source[new_path.path[0]]):
-                    arrival_time_source[new_path.path[0]] = set(
-                        [
-                            existing_path for existing_path in arrival_time_source[new_path.path[0]]
-                            if not self.dominates(new_path.cost, existing_path.cost)
-                        ]
-                    )
-                    arrival_time_source[new_path.path[0]].add(new_path) 
-        
-        
-        logger.critical("Some shit\n\n\n\n\n\n")
+        for i, current_time in enumerate(sorted_times):
+            current_labels = arrival_times[current_time]
+            for l in current_labels:
+                logger.critical(self.reconstruct_path(l))
 
-        transfer_pattern = set()        
-        for key, value in arrival_time_source.items():
-            logger.critical(key)
-            best = sorted(value, key=lambda path: path.cost)[0]
-            logger.critical(best)
-            node_list = []
-            for node in best.path:
-                node_list.append(node.platform_string_name)
+            if i > 0:
+                # Calculate the waiting time between arrivals
+                prev_time = sorted_times[i-1]
+                wait_time = current_time - prev_time
+                
+                # Create extended labels from previous time with increased duration
+                extended_prev_labels = []
+                for prev_label in prev_labels:
+                    # Create a copy with increased duration
+                    new_duration = prev_label.cost[0] + wait_time
+                    new_cost = (new_duration, prev_label.cost[1])
+                    # Create a new label object or modify the cost of the existing one
+                    extended_label = copy.deepcopy(prev_label)  # Assuming Label objects can be copied
+                    extended_label.cost = new_cost
+                    extended_prev_labels.append(extended_label)
+                
+                # Merge the two sets for dominance checking
+                # Start with extended previous labels (higher priority per your spec)
+                combined_labels = extended_prev_labels + current_labels
+                
+                # Select non-dominated labels with preference to extended_prev_labels
+                selected_labels = []
+                for label in combined_labels:
+                    if not self.is_dominated(label.cost, selected_labels):
+                        # Remove any labels in selected_labels dominated by this one
+                        selected_labels = [
+                            existing for existing in selected_labels
+                            if not self.dominates(label.cost, existing.cost)
+                        ]
+                        selected_labels.append(label)
+                
+                # Save these as optimal for this time point
+                time_optimal_labels = selected_labels
+            else:
+                # For the first arrival time, all labels are optimal
+                time_optimal_labels = current_labels
             
+            
+            # Update for next iteration
+            prev_labels = time_optimal_labels
+            # prev_labels = [label for label in time_optimal_labels if label in current_labels]
+            final_optimal_labels.extend(time_optimal_labels)
+        
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n")
+        # Process results for transfer patterns
+        transfer_pattern = set()
+        for label in final_optimal_labels:
+            path = self.reconstruct_path(label)
+            logger.critical(path)
+            node_list = [node.station_string_name for node in path.path]
             transfer_pattern.add(tuple(node_list))
         
         for x in transfer_pattern:
             logger.critical(x)
-        
+
+        return final_optimal_labels, transfer_pattern
+
     def reconstruct_path(self, label: Label) -> Path:
         """Reconstruct the path from a label."""
         path = [label.node]
