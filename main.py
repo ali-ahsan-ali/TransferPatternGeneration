@@ -47,12 +47,12 @@ class Main:
         try:
             # Parse times
             dep_time = parse_time_with_overflow(station_a_departure_time)
-            arr_time = parse_time_with_overflow(arrival_time)
-
+            arr_time: timedelta = parse_time_with_overflow(arrival_time)
+                
             # Create nodes
-            dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE)
+            dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE, None)
             arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
-
+            
             # Add riding edge
             self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
 
@@ -60,14 +60,14 @@ class Main:
             if station_b_departure_time:
                 next_dep_time = parse_time_with_overflow(station_b_departure_time)
                 next_dep_node = Node(
-                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.DEPARTURE
+                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.DEPARTURE, None
                 )
                 self.graph.add_edge(arr_node, next_dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
 
                 # Create transfer node at arrival time
                 if station_b_pickup_type == 0:
                     transfer_node = Node(
-                        station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER
+                        station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER, None
                     )
                     self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
                     
@@ -113,8 +113,7 @@ class Main:
                         )
                         break
                     j += 1
-            elif nodes[i].node_type == NODE_TYPE.ARRIVAL:
-                logger.debug(f"{nodes[i]} fucken cursed")
+                
                                         
 def validate_transit_network(G: nx.DiGraph) -> bool:
     """
@@ -183,30 +182,28 @@ def build_graph(
             # Process each stop in the trip
             logger.warning(f"{stop_times[0]["trip_id"]}, {trip_id}")
             for i in range(length - 1):
+                if i == 0 :
+                    while i < length - 1 and stop_times[i]["pickup_type"] != 0:
+                        i+= 1
+                        
+                    if i != 0:
+                        logger.critical(f"What in the fuck is going on with first {i} stops not picking up dumb fuck")
+                
+                if i == length - 1 :  continue
+                
                 j = i+1
                     
-                if stop_times[i]["pickup_type"] == 0 or isna(stop_times[i]["pickup_type"]):
-                    while j < length - 2 and stop_times[j]["drop_off_type"] != 0 and isna(stop_times[j]["drop_off_type"]):
-                        j += 1
-                    
-                    if j == length - 1 : continue 
-                    
-                    logger.debug(f"{main.parser.stops[stop_times[i]["stop_id"]]["stop_name"]}, {main.parser.stops[stop_times[j]["stop_id"]]["stop_name"]}")
-                    if stop_times[i]["stop_id"] == 2073161 and stop_times[j]["stop_id"] == 217391:
-                        exit()
-                    main.add_vehicle_connection(
-                        main.parser.stops[stop_times[i]["stop_id"]]["parent_station"],
-                        stop_times[i]["stop_id"],
-                        stop_times[i]["departure_time"],
-                        main.parser.stops[stop_times[j]["stop_id"]]["parent_station"],
-                        stop_times[j]["stop_id"],
-                        stop_times[j]["arrival_time"],
-                        stop_times[j].get(
-                            "departure_time"
-                        ),
-                        stop_times[j]["pickup_type"],
-                        stop_times[j]["drop_off_type"],
-                    )
+                main.add_vehicle_connection(
+                    main.parser.stops[stop_times[i]["stop_id"]]["parent_station"],
+                    stop_times[i]["stop_id"],
+                    stop_times[i]["departure_time"],
+                    main.parser.stops[stop_times[j]["stop_id"]]["parent_station"],
+                    stop_times[j]["stop_id"],
+                    stop_times[j]["arrival_time"],
+                    stop_times[j]["departure_time"],
+                    stop_times[j]["pickup_type"],
+                    stop_times[j]["drop_off_type"],
+                )
 
         # Process transfer connections
         print("Processing transfer connections...")
@@ -247,21 +244,22 @@ if __name__ == "__main__":
         logger.critical("Start building graph")
         graph = build_graph(GTFS_PATHS, PICKLE_PATH).graph
         logger.critical("Graph processing completed successfully")
-
+                
         # Print some statistics
         logger.critical(f"Total nodes: {len(graph.nodes())}")
         logger.critical(f"Total edges: {len(graph.edges())}")
         
         upper_bound = (timedelta(hours=24), 5)
         source = "207310"
+        # target = "204420"
         target = "204420"
         algorithm = MultiobjectiveDijkstra(graph, source=source, target=target, upper_bound=upper_bound)
         try:
-            optimal_labels = pickle.load(open(f"/second/train/optimal_labels_{source}.pickle", "rb"))
+            optimal_labels = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/optimal_labels_{source}.pickle", "rb"))
             target_labels = algorithm.find_target_labels(optimal_labels)
         except (FileNotFoundError, pickle.UnpicklingError, EOFError):
             algorithm.run()
-            pickle.dump(algorithm.L, open(f"/second/train/optimal_labels_{source}.pickle", "wb"))
+            pickle.dump(algorithm.L, open(f"/home/ali/dev/TransferPatternGeneration/optimal_labels_{source}.pickle", "wb"))
             target_labels = algorithm.find_target_labels(algorithm.L)
         
         algorithm.arrival_chain_algorithm(target_labels)

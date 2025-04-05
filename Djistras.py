@@ -15,10 +15,10 @@ FileName = currentDT.strftime("%Y%m%d%H%M%S")
 
 # Set up logging with only critical messages
 logging.basicConfig(
-    level=logging.CRITICAL,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(f"/second/train/multiobjective_dijkstra.log", mode="w")
+        logging.FileHandler(f"/home/ali/dev/TransferPatternGeneration/multiobjective_dijkstra.log", mode="w")
     ]
 )
 logger = logging.getLogger(__name__)
@@ -49,9 +49,10 @@ class Path:
         return hash((hashable_path, hashable_cost))
     
 class Label:
-    def __init__(self, node: Node, cost: Tuple, pred: 'Label' = None):
+    def __init__(self, node: Node, cost: Tuple, arrival_stations: List[Node], pred: 'Label' = None):
         self.node = node
         self.cost = cost
+        self.arrival_stations = arrival_stations
         self.pred = pred
     
     def __repr__(self):
@@ -61,7 +62,7 @@ class Label:
     def _format_label(self, indent=0):
         """Format this label with proper indentation."""
         cost_str = f"({self.cost[0]}, {self.cost[1]})" if isinstance(self.cost, tuple) else str(self.cost)
-        result = f"Label(node={self.node}, cost={cost_str}"
+        result = f"Label(node={self.node}, cost={cost_str}, arrival_stations={self.arrival_stations}"
         
         if self.pred is not None:
             pred_str = self.pred._format_label(indent + 2)
@@ -94,7 +95,8 @@ class Label:
             return NotImplemented
         return (self.node == other.node and 
                 self.cost == other.cost and 
-            self.pred == other.pred)
+            self.pred == other.pred and 
+            self.arrival_stations == other.arrival_stations)
 
     def __hash__(self):
         return hash((self.node, self.cost, id(self.pred)))
@@ -194,7 +196,7 @@ class MultiobjectiveDijkstra:
         logger.debug(f"Finding next candidate label for node {v}")
         
         # Initialize with max possible label
-        label_v = Label(node=v, cost=(timedelta.max, float('inf')), pred=None)
+        label_v = Label(node=v, cost=(timedelta.max, float('inf')), arrival_stations=[], pred=None)
 
         # For each incoming neighbor u
         incoming_neighbors = list(self.graph.predecessors(v))
@@ -218,6 +220,7 @@ class MultiobjectiveDijkstra:
                         label_u.cost[0] + self.graph[u][v]["cost"], 
                         label_u.cost[1] + self.graph[u][v]["penalty"]
                     ), 
+                    arrival_stations=label_u.arrival_stations,
                     pred=label_u
                 )
                 
@@ -272,8 +275,17 @@ class MultiobjectiveDijkstra:
         # Compute the new cost
         new_cost = (label.cost[0] + arc_cost, label.cost[1] + arc_penalty)
         logger.debug(f"New cost after propagation: {new_cost}")
+            
+        new_arrival_stations = label.arrival_stations
+        if w.station in label.arrival_stations and w.node_type == NODE_TYPE.ARRIVAL:
+            logger.debug(f"New cycle for {w} due to {label.arrival_stations}")
+            return priority_queue
+        elif w.station not in label.arrival_stations and w.node_type == NODE_TYPE.ARRIVAL:
+            new_arrival_stations.append(w.station)
+            
+        new_label = Label(node=w, cost=new_cost, arrival_stations=new_arrival_stations, pred=label)
         
-        # Prune
+        # Prune based on cost 
         if new_cost[0] > self.upper_bound[0] or new_cost[1] > self.upper_bound[1]:
             logger.debug(f"Label pruned: {new_cost} exceeds upper bound {self.upper_bound}")
             return priority_queue
@@ -281,7 +293,6 @@ class MultiobjectiveDijkstra:
         # Check if the new label is dominated
         if not self.is_dominated(new_cost, L[w]):
             logger.debug(f"New label is not dominated by existing labels at node {w}")
-            new_label = Label(node=w, cost=new_cost, pred=label)
             acted = False
             for (index, label) in enumerate(self.H):
                 if label[2].node == w:
@@ -304,7 +315,6 @@ class MultiobjectiveDijkstra:
         logger.debug("Starting run method to find matching source node")
         for node in self.graph.nodes():
             if node.station == self.source and node.node_type == NODE_TYPE.TRANSFER:
-                logger.debug(f"Found matching source node: {node}")
                 self.run_for_source(source_node=node)
         
     def run_for_source(self, source_node):
@@ -314,7 +324,7 @@ class MultiobjectiveDijkstra:
         
         # Initialize source label
         source_label = Label(
-            node=source_node, cost=(timedelta(), 0), pred=None
+            node=source_node, cost=(timedelta(), 0), arrival_stations=[], pred=None
         )
         logger.debug(f"Created initial source label with cost {source_label.cost}")
         self.insert_priority_queue(source_label)
@@ -378,7 +388,6 @@ class MultiobjectiveDijkstra:
         target_labels = []
         for node, labels in efficient_labels.items():
             if self.is_target_node(node):
-                logger.critical(f"Found matching target node: {node} with {len(labels)} labels")
                 target_labels.extend(labels)
         
         # Sort target labels lexicographically
@@ -394,7 +403,6 @@ class MultiobjectiveDijkstra:
         Check if a node matches the target criteria.
         """
         result = node.station == self.target and node.node_type == NODE_TYPE.ARRIVAL
-        logger.debug(f"Node {node} is {'a' if result else 'not a'} target node")
         return result
 
     def arrival_chain_algorithm(self, optimal_labels: List[Label]):
@@ -412,38 +420,36 @@ class MultiobjectiveDijkstra:
         sorted_times = sorted(arrival_times.keys())
 
         # Apply the arrival chain algorithm
-        prev_labels = None
         optimal_labels = []
         for i, time in enumerate(sorted_times):
             current_labels = arrival_times[time]
+            new_current_labels = []
             
-            new_prev_labels = []
             if i > 0:
                 time_to_add_to_prev_labels = time - sorted_times[i-1]
+                
                 for prev_label in prev_labels:
-                    new_node = Node(prev_label.node.station, prev_label.node.station_string_name, prev_label.node.platform, prev_label.node.platform_string_name, time, prev_label.node.node_type)
-                    prev_label.node = new_node
                     new_time_cost = prev_label.cost[0] + time_to_add_to_prev_labels
-                    prev_label.cost = (new_time_cost, prev_label.cost[1])
-                    new_prev_labels.append(prev_label)
-            
-            for label in new_prev_labels:
-                if not self.is_dominated(label.cost, current_labels):
-                    current_labels = [
-                        existing_label for existing_label in current_labels
-                        if not self.dominates(label.cost, existing_label.cost)
-                    ]
-                    current_labels.append(label)
+                    new_cost = (new_time_cost, prev_label.cost[1])
                     
-            # Take the best with least travel then with least transfer cost for each arrival
-            sorted_current_labels = sorted(current_labels, key=lambda label: label.cost)
-            optimal_labels.extend(sorted_current_labels)
-
+                    if not self.is_dominated(new_cost, current_labels):
+                        new_current_labels = [
+                            existing_label for existing_label in current_labels
+                            if not self.dominates(prev_label.cost, existing_label.cost)
+                        ]
+                        new_current_labels.append(prev_label)
+                
+                sorted_current_labels = sorted(new_current_labels, key=lambda label: label.cost)
+                optimal_labels.extend(sorted_current_labels)
+                
             prev_labels = current_labels
             
-        for key in optimal_labels:
-            logger.critical(self.reconstruct_path(key))
-            logger.critical(f"CUNT123")
+        # If a path P contains a sequence (A → C → B)
+        # where station B appears later in the path, and there exists a direct connection (A → B) that would have arrived earlier 
+        # than when the path P eventually reaches B, then P is considered suboptimal and should be filtered out.
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+        for label in optimal_labels:
+            logger.critical(self.reconstruct_path(label))
                 
         arrival_times = defaultdict(list)
         for label in optimal_labels:
@@ -498,6 +504,8 @@ class MultiobjectiveDijkstra:
         current = label
         while current:
             if current.node.node_type == NODE_TYPE.DEPARTURE and current.pred != None and current.pred.node.node_type == NODE_TYPE.TRANSFER:
+                path.append(current.node)
+            if current.pred == None:
                 path.append(current.node)
             current = current.pred
         path.reverse()

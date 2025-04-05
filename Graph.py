@@ -34,7 +34,7 @@ class Node:
     platform_string_name: str
     time: timedelta
     node_type: NODE_TYPE
-    drop_off_type: Optional[int] = None # DOn't care unless its an arrival node
+    drop_off_type: Optional[int]
 
     def __str__(self):
         return f"{self.platform_string_name}|{self.node_type}|{self.drop_off_type}@{self.time}"
