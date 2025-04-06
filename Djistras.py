@@ -431,8 +431,7 @@ class MultiobjectiveDijkstra:
                     # Create new label with increased duration
                     new_duration = prev_label.cost[0] + wait_time
                     new_cost = (new_duration, prev_label.cost[1])
-                    extended_label = copy.deepcopy(prev_label)
-                    extended_label.cost = new_cost
+                    extended_label = Label(prev_label.node, new_cost, prev_label.arrival_stations, prev_label.pred)
                     extended_prev_labels.append(extended_label)
             
             # Step 2: Combine and filter (with preference to extended_prev_labels)
@@ -458,8 +457,24 @@ class MultiobjectiveDijkstra:
                     time_optimal_labels.append(label)
             
            
-            # Step 3: Add to final 
-            final_optimal_labels.extend(time_optimal_labels)
+            # Step 3: Add to the best item to the optimal list. Best is either the latest leaving, or the better cost in that order.  
+            latest_departure = timedelta.max
+            best_cost = (timedelta.max, float("inf"))
+            for label in time_optimal_labels:
+                for node in self.reconstruct_path(label).path:
+                    if node.station == self.source and node.node_type == NODE_TYPE.DEPARTURE:
+                        if node.time < latest_departure:
+                            latest_departure = node.time
+                            best_cost = label.cost
+                            best = [label]
+                        elif node.time == latest_departure and label.cost < best_cost:
+                            best_cost = label.cost
+                            best = [label]
+                        elif node.time == latest_departure and label.cost == best_cost:
+                            best.append(label)
+                        break 
+                
+            final_optimal_labels.extend(best)
         
             # Step 4: Update for next iteration
             prev_optimal_labels = current_labels

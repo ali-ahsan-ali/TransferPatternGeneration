@@ -103,7 +103,6 @@ class Main:
                     nodes[last_station_transfer[nodes[i].station]], nodes[i], TRAVEL_TYPE.WAITINGCHAIN
                 )
                 last_station_transfer[nodes[i].station] = i
-            
             elif nodes[i].node_type == NODE_TYPE.ARRIVAL and nodes[i].drop_off_type == 0:
                 j = i + 1
                 while j < total_nodes:
@@ -226,7 +225,7 @@ if __name__ == "__main__":
         stops = main.parser.stops.keys()
         for stop_id in stops:
             if main.parser.stops[stop_id]["parent_station"] == "" or main.parser.stops[stop_id]["parent_station"] == None:
-                if stop_id == "212110":
+                if stop_id == "204420":
                     target_labels = algorithm.find_target_labels(optimal_labels, stop_id)
                     # try:
                     #     transfer_pattern = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "rb"))
