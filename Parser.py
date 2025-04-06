@@ -10,7 +10,7 @@ class GTFSParser:
     def __init__(
         self,
         gtfs_directories,  # Now accepts a list of directories
-        debug_level=logging.DEBUG,
+        debug_level=logging.CRITICAL,
         pickle_path="gtfs_parser.pickle",
     ):
         # Ensure gtfs_directories is a list
@@ -26,7 +26,7 @@ class GTFSParser:
         self.logger.setLevel(debug_level)
 
         # Create console handler with formatting
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.FileHandler("log/" + "parser.log", mode="w")
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
@@ -154,7 +154,9 @@ class GTFSParser:
             
             # Process stops
             self.logger.debug("Converting stops to dictionary...")
-            self.stops = all_stops_df.set_index("stop_id").to_dict("index")
+            for key, value in all_stops_df.set_index("stop_id").to_dict("index").items():
+                self.stops[key] = value
+
             self.logger.info("Processed %d unique stops", len(self.stops))
             
             # Process trips
@@ -236,7 +238,7 @@ class GTFSParser:
                           and val["pickup_type"] == 0 and val["drop_off_type"] == 1 
                           and prev["stop_id"] == val["stop_id"]):
                         # Remove duplicate
-                        self.logger.critical("Removing duplicate stop time entry: %s", val)
+                        self.logger.debug("Removing duplicate stop time entry: %s", val)
                         new_val.pop()
                         val["drop_off_type"] = 0
                         val["arrival_time"] = prev["arrival_time"]

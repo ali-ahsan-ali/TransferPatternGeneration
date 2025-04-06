@@ -382,7 +382,6 @@ class MultiobjectiveDijkstra:
         """
         Find labels for nodes matching the target station and optional node type.
         """
-        logger.critical("Finding target labels across efficient labels")
         logger.critical(f"Target station: {target}")
         target_labels = []
         for node, labels in efficient_labels.items():
@@ -391,9 +390,7 @@ class MultiobjectiveDijkstra:
         
         # Sort target labels lexicographically
         target_labels.sort(key=lambda label: label.cost)
-        logger.critical(f"Sorted {len(target_labels)} target labels")
-        
-        logger.critical(f"Found {len(target_labels)} labels matching target criteria")
+        logger.critical(f"Target station: {target}. Found {len(target_labels)} labels matching target criteria")
         
         return target_labels
     
@@ -416,57 +413,63 @@ class MultiobjectiveDijkstra:
         
         # Apply the arrival chain algorithm
         final_optimal_labels = []
-        prev_labels = []
+        prev_optimal_labels = []
         
-        for i, current_time in enumerate(sorted_times):
+        for current_time in sorted_times:
             current_labels = arrival_times[current_time]
+            
             for l in current_labels:
                 logger.critical(self.reconstruct_path(l))
 
-            if i > 0:
-                # Calculate the waiting time between arrivals
-                prev_time = sorted_times[i-1]
+            # Step 1: Create extended previous labels (waiting passengers)
+            extended_prev_labels = []
+            if prev_optimal_labels:
+                prev_time = sorted_times[sorted_times.index(current_time)-1]
                 wait_time = current_time - prev_time
                 
-                # Create extended labels from previous time with increased duration
-                extended_prev_labels = []
-                for prev_label in prev_labels:
-                    # Create a copy with increased duration
+                for prev_label in prev_optimal_labels:
+                    # Create new label with increased duration
                     new_duration = prev_label.cost[0] + wait_time
                     new_cost = (new_duration, prev_label.cost[1])
-                    # Create a new label object or modify the cost of the existing one
-                    extended_label = copy.deepcopy(prev_label)  # Assuming Label objects can be copied
+                    extended_label = copy.deepcopy(prev_label)
                     extended_label.cost = new_cost
                     extended_prev_labels.append(extended_label)
-                
-                # Merge the two sets for dominance checking
-                # Start with extended previous labels (higher priority per your spec)
-                combined_labels = extended_prev_labels + current_labels
-                
-                # Select non-dominated labels with preference to extended_prev_labels
-                selected_labels = []
-                for label in combined_labels:
-                    if not self.is_dominated(label.cost, selected_labels):
-                        # Remove any labels in selected_labels dominated by this one
-                        selected_labels = [
-                            existing for existing in selected_labels
-                            if not self.dominates(label.cost, existing.cost)
-                        ]
-                        selected_labels.append(label)
-                
-                # Save these as optimal for this time point
-                time_optimal_labels = selected_labels
-            else:
-                # For the first arrival time, all labels are optimal
-                time_optimal_labels = current_labels
             
+            # Step 2: Combine and filter (with preference to extended_prev_labels)
+            time_optimal_labels = []
             
-            # Update for next iteration
-            prev_labels = time_optimal_labels
-            # prev_labels = [label for label in time_optimal_labels if label in current_labels]
+            # First pass: add extended_prev_labels if not dominated
+            for label in extended_prev_labels:
+                if not self.is_dominated(label.cost, time_optimal_labels):
+                    time_optimal_labels = [
+                        existing_label for existing_label in time_optimal_labels
+                        if not self.dominates(label.cost, existing_label.cost)
+                    ]
+                    time_optimal_labels.append(label)
+            
+            # Second pass: add current_labels if they dominate existing or are new
+            for label in current_labels:
+                if not self.is_dominated(label.cost, time_optimal_labels):
+                    # Remove dominated existing labels
+                    time_optimal_labels = [
+                        existing_label for existing_label in time_optimal_labels
+                        if not self.dominates(label.cost, existing_label.cost)
+                    ]
+                    time_optimal_labels.append(label)
+            
+           
+            # Step 3: Add to final 
             final_optimal_labels.extend(time_optimal_labels)
         
-        logger.critical("\n\n\n\n\n\n\n\n\n\n\n")
+            # Step 4: Update for next iteration
+            prev_optimal_labels = current_labels
+        
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
+
+        for x in final_optimal_labels:
+            logger.critical(self.reconstruct_path(x))
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
+
         # Process results for transfer patterns
         transfer_pattern = set()
         for label in final_optimal_labels:
@@ -474,9 +477,6 @@ class MultiobjectiveDijkstra:
             logger.critical(path)
             node_list = [node.station_string_name for node in path.path]
             transfer_pattern.add(tuple(node_list))
-        
-        for x in transfer_pattern:
-            logger.critical(x)
 
         return final_optimal_labels, transfer_pattern
 
