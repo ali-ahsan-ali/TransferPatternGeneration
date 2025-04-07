@@ -25,35 +25,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class Path:
-    def __init__(self, path: List[Node], cost: Tuple):
+    def __init__(self, path: List[Node], cost: Tuple, short_path: List[Node], ):
         self.path = path
         self.cost = cost
+        self.short_path = short_path
     
     def __repr__(self):
-        path_str = " -> ".join(str(node) for node in self.path)
+        path_str = " -> ".join(str(node) for node in self.short_path)
         return f"Cost: {self.cost}, Path: {path_str}"
     
     def __eq__(self, other):
         if not isinstance(other, Path):
             return NotImplemented
-        return (self.path == other.path and 
+        return (self.path == other.path and self.short_path == other.short_path and 
                 self.cost[0] == other.cost[0]and 
                 self.cost[1] == other.cost[1])
     
     def __hash__(self):
         hashable_path = tuple(self.path)
+        hashable_short_path = tuple(self.short_path)
         # For timedelta objects
         if isinstance(self.cost[0], timedelta):
             hashable_cost = (self.cost[0].total_seconds(), self.cost[1])
         else:
             hashable_cost = self.cost
-        return hash((hashable_path, hashable_cost))
+        return hash((hashable_path, hashable_cost, hashable_short_path))
     
 class Label:
-    def __init__(self, node: Node, cost: Tuple, arrival_stations: List[Node], pred: 'Label' = None):
+    def __init__(self, node: Node, cost: Tuple, pred: 'Label' = None):
         self.node = node
         self.cost = cost
-        self.arrival_stations = arrival_stations
         self.pred = pred
     
     def __repr__(self):
@@ -96,8 +97,7 @@ class Label:
             return NotImplemented
         return (self.node == other.node and 
                 self.cost == other.cost and 
-            self.pred == other.pred and 
-            self.arrival_stations == other.arrival_stations)
+            self.pred == other.pred)
 
     def __hash__(self):
         return hash((self.node, self.cost, id(self.pred)))
@@ -195,7 +195,7 @@ class MultiobjectiveDijkstra:
         logger.debug(f"Finding next candidate label for node {v}")
         
         # Initialize with max possible label
-        label_v = Label(node=v, cost=(timedelta.max, float('inf')), arrival_stations=[], pred=None)
+        label_v = Label(node=v, cost=(timedelta.max, float('inf')), pred=None)
 
         # For each incoming neighbor u
         incoming_neighbors = list(self.graph.predecessors(v))
@@ -219,7 +219,6 @@ class MultiobjectiveDijkstra:
                         label_u.cost[0] + self.graph[u][v]["cost"], 
                         label_u.cost[1] + self.graph[u][v]["penalty"]
                     ), 
-                    arrival_stations=label_u.arrival_stations,
                     pred=label_u
                 )
                 
@@ -273,16 +272,8 @@ class MultiobjectiveDijkstra:
 
         # Compute the new cost
         new_cost = (label.cost[0] + arc_cost, label.cost[1] + arc_penalty)
-        logger.debug(f"New cost after propagation: {new_cost}")
-            
-        new_arrival_stations = label.arrival_stations
-        if w.station in label.arrival_stations and w.node_type == NODE_TYPE.ARRIVAL:
-            logger.debug(f"New cycle for {w} due to {label.arrival_stations}")
-            return priority_queue
-        elif w.station not in label.arrival_stations and w.node_type == NODE_TYPE.ARRIVAL:
-            new_arrival_stations.append(w.station)
-            
-        new_label = Label(node=w, cost=new_cost, arrival_stations=new_arrival_stations, pred=label)
+        logger.debug(f"New cost after propagation: {new_cost}")            
+        new_label = Label(node=w, cost=new_cost, pred=label)
         
         # Prune based on cost 
         if new_cost[0] > self.upper_bound[0] or new_cost[1] > self.upper_bound[1]:
@@ -314,8 +305,9 @@ class MultiobjectiveDijkstra:
         logger.debug("Starting run method to find matching source node")
         for node in self.graph.nodes():
             if node.station == self.source and node.node_type == NODE_TYPE.TRANSFER:
+                # if str(node) == "Pymble Station Platform 2|TRANSFER|None@22:47:00":
                 self.run_for_source(source_node=node)
-        
+    
     def run_for_source(self, source_node):
         """Run the Multiobjective Dijkstra Algorithm."""
         logger.critical("Starting MultiobjectiveDijkstra algorithm")
@@ -323,7 +315,7 @@ class MultiobjectiveDijkstra:
         
         # Initialize source label
         source_label = Label(
-            node=source_node, cost=(timedelta(), 0), arrival_stations=[], pred=None
+            node=source_node, cost=(timedelta(), 0), pred=None
         )
         logger.debug(f"Created initial source label with cost {source_label.cost}")
         self.insert_priority_queue(source_label)
@@ -405,6 +397,9 @@ class MultiobjectiveDijkstra:
         # Group labels by arrival time
         arrival_times = defaultdict(list)
         for label in optimal_labels:
+            path = self.reconstruct_complete_path(label)
+            logger.critical(f"{path.cost} {path.short_path}")
+
             arrival_time = label.node.time
             arrival_times[arrival_time].append(label)
         
@@ -412,26 +407,23 @@ class MultiobjectiveDijkstra:
         sorted_times = sorted(arrival_times.keys())
         
         # Apply the arrival chain algorithm
-        final_optimal_labels = []
-        prev_optimal_labels = []
-        
+        final_optimal_path: List[Path] = []
+        prev_labels = []
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n")
         for current_time in sorted_times:
             current_labels = arrival_times[current_time]
-            
-            for l in current_labels:
-                logger.critical(self.reconstruct_path(l))
 
             # Step 1: Create extended previous labels (waiting passengers)
             extended_prev_labels = []
-            if prev_optimal_labels:
+            if prev_labels:
                 prev_time = sorted_times[sorted_times.index(current_time)-1]
                 wait_time = current_time - prev_time
                 
-                for prev_label in prev_optimal_labels:
+                for prev_label in prev_labels:
                     # Create new label with increased duration
                     new_duration = prev_label.cost[0] + wait_time
                     new_cost = (new_duration, prev_label.cost[1])
-                    extended_label = Label(prev_label.node, new_cost, prev_label.arrival_stations, prev_label.pred)
+                    extended_label = Label(prev_label.node, new_cost, prev_label.pred)
                     extended_prev_labels.append(extended_label)
             
             # Step 2: Combine and filter (with preference to extended_prev_labels)
@@ -457,54 +449,76 @@ class MultiobjectiveDijkstra:
                     time_optimal_labels.append(label)
             
            
-            # Step 3: Add to the best item to the optimal list. Best is either the latest leaving, or the better cost in that order.  
-            latest_departure = timedelta.max
-            best_cost = (timedelta.max, float("inf"))
             for label in time_optimal_labels:
-                for node in self.reconstruct_path(label).path:
-                    if node.station == self.source and node.node_type == NODE_TYPE.DEPARTURE:
-                        if node.time < latest_departure:
+                path = self.reconstruct_complete_path(label)
+                logger.critical(f"{path.cost} {path.short_path}")
+
+            # Step 3: Add to the best item to the optimal list. Best is either the latest leaving, or the better cost in that order.  
+            latest_departure = timedelta.min
+            best_cost = (timedelta.max, float("inf"))
+            best = []
+            for label in time_optimal_labels:
+                path: Path = self.reconstruct_complete_path(label)
+                for node in path.path:
+                    if node.station == self.source and node.node_type == NODE_TYPE.ARRIVAL:
+                        if node.time > latest_departure:
                             latest_departure = node.time
                             best_cost = label.cost
-                            best = [label]
-                        elif node.time == latest_departure and label.cost < best_cost:
+                            best = [path]
+                        elif node.time == latest_departure and self.dominates(label.cost, best_cost):
                             best_cost = label.cost
-                            best = [label]
-                        elif node.time == latest_departure and label.cost == best_cost:
-                            best.append(label)
+                            best = [path]
+                        elif node.time == latest_departure:
+                            best.append(path)
                         break 
                 
-            final_optimal_labels.extend(best)
+            final_optimal_path.extend(best)
         
             # Step 4: Update for next iteration
-            prev_optimal_labels = current_labels
+            prev_labels = current_labels
         
         logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
 
-        for x in final_optimal_labels:
-            logger.critical(self.reconstruct_path(x))
-        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
+        # Group labels by arrival time and then find dominantlabels
+        departure_times = defaultdict(list)
+        for path in final_optimal_path:
+            arrival_time = label.node.time
+            for node in path.path:
+                if node.station == self.source and node.node_type == NODE_TYPE.ARRIVAL:
+                    if node.time not in departure_times:
+                        departure_times[node.time] = []
+                    
+                    if not self.is_dominated(path.cost, departure_times[node.time]):
+                        # Remove dominated existing labels
+                        departure_times[node.time] = [
+                            existing_path for existing_path in departure_times[node.time]
+                            if not self.dominates(path.cost, existing_path.cost)
+                        ]
+                        departure_times[node.time].append(path)
 
-        # Process results for transfer patterns
         transfer_pattern = set()
-        for label in final_optimal_labels:
-            path = self.reconstruct_path(label)
-            logger.critical(path)
-            node_list = [node.station_string_name for node in path.path]
-            transfer_pattern.add(tuple(node_list))
+        for time in departure_times:
+            for path in departure_times[time]:
+                logger.critical(path)
+                node_list = [node.station_string_name for node in path.short_path]
+                transfer_pattern.add(tuple(node_list))
 
-        return final_optimal_labels, transfer_pattern
-
-    def reconstruct_path(self, label: Label) -> Path:
+        return final_optimal_path, transfer_pattern
+    
+    def reconstruct_complete_path(self, label: Label) -> Path:
         """Reconstruct the path from a label."""
         path = [label.node]
+        short_path = [label.node]
         current = label
         while current:
-            if current.node.node_type == NODE_TYPE.DEPARTURE and current.pred != None and current.pred.node.node_type == NODE_TYPE.TRANSFER:
-                path.append(current.node)
+            if current.node.node_type == NODE_TYPE.ARRIVAL and current.pred != None and current.pred.node.node_type == NODE_TYPE.TRANSFER:
+                short_path.append(current.node)
             if current.pred == None:
-                path.append(current.node)
+                short_path.append(current.node)
+
+            path.append(current.node)
             current = current.pred
         path.reverse()
+        short_path.reverse()
         
-        return Path(path, label.cost)
+        return Path(path, label.cost,short_path)

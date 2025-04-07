@@ -9,18 +9,16 @@ import pickle
 
 class TRAVEL_TYPE(Enum):
     NORMAL = 1
-    STAYINGONTRAIN = 2
-    TRANSFER = 3
-    WAITINGCHAIN = 4
+    TRANSFER = 2
+    WAITINGCHAIN = 3
 
     def __str__(self):
         return self.name
 
 
 class NODE_TYPE(Enum):
-    DEPARTURE = 1
-    ARRIVAL = 2
-    TRANSFER = 3
+    ARRIVAL = 1
+    TRANSFER = 2
 
     def __str__(self):
         return self.name

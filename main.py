@@ -35,45 +35,41 @@ class Main:
         self,
         station_a: str,
         child_stop_a: str,
-        station_a_departure_time: str,
+        station_a_arrival_time: str,
+        station_a_dropoff_type: 0, 
         station_b: str,
         child_stop_b: str,
-        arrival_time: str,
-        station_b_departure_time: Optional[str] = None,
+        station_b_arrival_time: str,
         station_b_pickup_type: int = 0, 
         station_b_dropoff_type: int = 0,
+        isInitial: bool = False
     ) -> None:
         """Add nodes and edges for a vehicle connection between stations."""
         try:
             # Parse times
-            dep_time = parse_time_with_overflow(station_a_departure_time)
-            arr_time: timedelta = parse_time_with_overflow(arrival_time)
+            arr_time_a: timedelta  = parse_time_with_overflow(station_a_arrival_time)
+            arr_time_b: timedelta = parse_time_with_overflow(station_b_arrival_time)
                 
             # Create nodes
-            dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE, None)
-            arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
+            arr_time_a_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], arr_time_a, NODE_TYPE.ARRIVAL, station_a_dropoff_type)
+            arr_time_b_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time_b, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
             
             # Add riding edge
-            self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
+            self.graph.add_edge(arr_time_a_node, arr_time_b_node, TRAVEL_TYPE.NORMAL)
 
-            # If vehicle continues, add staying edge
-            if station_b_departure_time:
-                next_dep_time = parse_time_with_overflow(station_b_departure_time)
-                next_dep_node = Node(
-                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.DEPARTURE, None
-                )
-                self.graph.add_edge(arr_node, next_dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
+            # Algo adds transfer to next arrival time, but we need to cater for the first arrival time of each trip too. 
+            if isInitial:
+                transfer_node_initial = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], arr_time_a, NODE_TYPE.TRANSFER, None)
+                self.graph.add_edge(transfer_node_initial, arr_time_a_node, TRAVEL_TYPE.WAITINGCHAIN)
 
-                # Create transfer node at arrival time
-                if station_b_pickup_type == 0:
-                    transfer_node = Node(
-                        station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER, None
-                    )
-                    self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
-                    
-                else:
-                    logger.debug(f"{station_a}, {self.parser.stops[station_a]["stop_name"]}, {child_stop_a} {self.parser.stops[station_b]["stop_name"]} {station_b}, {self.parser.stops[station_b]["stop_name"]} {child_stop_b} shits fucked for {station_b_pickup_type} at {next_dep_time}")
+            # Create transfer node at arrival time
+            if station_b_pickup_type == 0:
+                transfer_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time_b, NODE_TYPE.TRANSFER, None)
+                self.graph.add_edge(transfer_node, arr_time_b_node, TRAVEL_TYPE.WAITINGCHAIN)
+            else:
+                logger.debug(f"{station_a}, {self.parser.stops[station_a]["stop_name"]}, {child_stop_a} {self.parser.stops[station_b]["stop_name"]} {station_b}, {self.parser.stops[station_b]["stop_name"]} {child_stop_b} shits fucked for {station_b_pickup_type}")
             
+               
             logger.debug(
                 f"Added vehicle connection from {station_a} to {station_b}"
             )
@@ -112,27 +108,6 @@ class Main:
                         )
                         break
                     j += 1
-            # elif nodes[i].node_type == NODE_TYPE.DEPARTURE:
-            #     # Connect predecessor to successor. Now transfers are straight to arrival nodes. Should fix algo.
-            #     for predecessor in self.graph.graph.predecessors(nodes[i]):
-            #         for successor in self.graph.graph.successors(nodes[i]):
-            #             self.graph.add_edge(predecessor, successor, TRAVEL_TYPE.NORMAL)
-                
-            #     self.graph.graph.remove_node(nodes[i])
-
-def reconstruct_path(label: Label):
-    """Reconstruct the path from a label."""
-    path = [label.node]
-    current = label
-    while current:
-        if current.node.node_type == NODE_TYPE.TRANSFER and  current.pred != None and current.pred.node.node_type != NODE_TYPE.TRANSFER:
-            path.append(current.node)
-        if current.pred == None:
-            path.append(current.node)
-        current = current.pred
-    path.reverse()
-   
-    return (path, label.cost)
     
 if __name__ == "__main__":
     # Configuration
@@ -175,6 +150,7 @@ if __name__ == "__main__":
 
                 # Process each stop in the trip
                 logger.warning(f"{stop_times[0]["trip_id"]}, {trip_id}")
+                isInitial = True
                 for i in range(length - 1):
 
                     # Ignore the start of a trip if it's not picking anyone up and keep ignoring until it does. 
@@ -182,28 +158,32 @@ if __name__ == "__main__":
                         while i < length - 1 and stop_times[i]["pickup_type"] != 0:
                             i+= 1
                             
-                    if i == length - 1 :  continue
+                    if i == length - 1 :  break
                     
                     j = i+1
                         
                     main.add_vehicle_connection(
                         main.parser.stops[stop_times[i]["stop_id"]]["parent_station"],
                         stop_times[i]["stop_id"],
-                        stop_times[i]["departure_time"],
+                        stop_times[i]["arrival_time"],
+                        stop_times[i]["drop_off_type"],
                         main.parser.stops[stop_times[j]["stop_id"]]["parent_station"],
                         stop_times[j]["stop_id"],
                         stop_times[j]["arrival_time"],
-                        stop_times[j]["departure_time"],
                         stop_times[j]["pickup_type"],
                         stop_times[j]["drop_off_type"],
+                        isInitial
+
                     )
+
+                    isInitial = False
 
             # Process transfer connections
             print("Processing transfer connections...")
             main.process_transfers()
             
             # Save the graph
-            print(f"Validation successful. Saving graph to {PICKLE_PATH}")
+            print(f"Saving graph to {PICKLE_PATH}")
             main.graph.save_to_pickle(PICKLE_PATH)
             logger.critical("Graph processing completed successfully")
                     
@@ -213,6 +193,15 @@ if __name__ == "__main__":
             
         upper_bound = (timedelta(hours=24), 5)
         source = "207310"
+
+        # for x in main.graph.graph.nodes():
+        #     if str(x) == "Sydenham Station Platform 6|ARRIVAL|0@19:09:18":
+        #         logger.critical(x)
+        #         for i in main.graph.graph.predecessors(x):
+        #             logger.critical(i)
+        #         logger.critical("\n\n")
+        #         for i in main.graph.graph.successors(x):
+        #             logger.critical(i)
 
         algorithm = MultiobjectiveDijkstra(main.graph.graph, source=source, upper_bound=upper_bound)
         try:
