@@ -414,10 +414,7 @@ class MultiobjectiveDijkstra:
         for current_time in sorted_times:
             current_labels = arrival_times[current_time]
 
-            for label in current_labels:
-                logger.critical(self.reconstruct_complete_path(label))
-
-            # Step 3: Add to the best item to the optimal list. Best is either the latest leaving, or the better cost in that order.  
+            # Step 1: Add to the best item to the optimal list. Best is either the latest leaving, or the better cost in that order.  
             latest_departure = timedelta.min
             best_cost = (timedelta.max, float("inf"))
             best = []
@@ -441,7 +438,8 @@ class MultiobjectiveDijkstra:
                 
             final_optimal_path[current_time] = best
         
-        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
+        logger.critical("Checking if there is an arrival time that for all it's departures from source station, those departues leave before previous iterations that arrive earlier")
+        logger.critical("That means that the entire arrival time at the station is a unoptimal route. Probably going to the wrong platform.")
 
         final_optimal_paths = []
         for (i, current_time) in enumerate(sorted_times):
@@ -460,9 +458,6 @@ class MultiobjectiveDijkstra:
                         
                         # is there an earlier arrival time that leaves after this "optimal" label. If so, its not optimal and remove this.
                         if path.path[0].time > previous_start_time:
-                            logger.critical(path)
-                            logger.critical(copy_path)
-                            logger.critical(paths)
                             del copy_path[j]
 
                         if len(copy_path) == 0: break
@@ -474,13 +469,14 @@ class MultiobjectiveDijkstra:
         for path in final_optimal_paths:
             logger.critical(path)
 
-        logger.critical("POST CUNT\n\n\n\n\n\n\n\n\n\n\n\n")
+        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
 
         # Group labels by arrival time and then find dominantlabels
         departure_times = defaultdict(list)
         for path in final_optimal_paths:
             arrival_time = label.node.time
-            for node in path.path:
+            reversed_path = path.path
+            for node in reversed_path:
                 if node.station == self.source and node.node_type == NODE_TYPE.DEPARTURE:
                     if node.time not in departure_times:
                         departure_times[node.time] = []
@@ -493,14 +489,17 @@ class MultiobjectiveDijkstra:
                         ]
                         departure_times[node.time].append(path)
 
+        # Sort departure times
+        sorted_times = sorted(departure_times.keys())
+
         transfer_pattern = set()
-        for time in departure_times:
-            for path in departure_times[time]:
-                logger.critical(path)
-                node_list = [node.station_string_name for node in path.short_path]
+        for time in sorted_times:
+            for optimal_path in departure_times[time]:
+                logger.critical(optimal_path)
+                node_list = [node.station_string_name for node in optimal_path.short_path]
                 transfer_pattern.add(tuple(node_list))
 
-        return final_optimal_path, transfer_pattern
+        return transfer_pattern
     
     def reconstruct_complete_path(self, label: Label) -> Path:
         """Reconstruct the path from a label."""

@@ -35,9 +35,7 @@ class Main:
         self,
         station_a: str,
         child_stop_a: str,
-        station_a_arrival_time: str,
         station_a_departure_time: str,
-        station_a_dropoff_type: str,
         station_b: str,
         child_stop_b: str,
         station_b_arrival_time: str,
@@ -60,11 +58,8 @@ class Main:
             self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
 
             if isInitial:
-                intitial_arr_time: timedelta = parse_time_with_overflow(station_a_arrival_time)
-                intitial_arr_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], intitial_arr_time, NODE_TYPE.ARRIVAL, station_a_dropoff_type)
                 transfer_node_initial = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.TRANSFER, None)
                 self.graph.add_edge(transfer_node_initial, dep_node, TRAVEL_TYPE.WAITINGCHAIN)
-                self.graph.add_edge(intitial_arr_node, dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
 
             # If vehicle continues, add staying edge
             if station_b_departure_time:
@@ -182,9 +177,7 @@ if __name__ == "__main__":
                     main.add_vehicle_connection(
                         main.parser.stops[stop_times[i]["stop_id"]]["parent_station"],
                         stop_times[i]["stop_id"],
-                        stop_times[i]["arrival_time"],
                         stop_times[i]["departure_time"],
-                        stop_times[i]["drop_off_type"],
                         main.parser.stops[stop_times[j]["stop_id"]]["parent_station"],
                         stop_times[j]["stop_id"],
                         stop_times[j]["arrival_time"],
@@ -212,15 +205,6 @@ if __name__ == "__main__":
         upper_bound = (timedelta(hours=24), 5)
         source = "207310"
 
-        # for x in main.graph.graph.nodes():
-        #     if str(x) == "Sydenham Station Platform 6|ARRIVAL|0@19:09:18":
-        #         logger.critical(x)
-        #         for i in main.graph.graph.predecessors(x):
-        #             logger.critical(i)
-        #         logger.critical("\n\n")
-        #         for i in main.graph.graph.successors(x):
-        #             logger.critical(i)
-
         algorithm = MultiobjectiveDijkstra(main.graph.graph, source=source, upper_bound=upper_bound)
         try:
             optimal_labels = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/optimal_labels_{source}.pickle", "rb"))
@@ -237,7 +221,7 @@ if __name__ == "__main__":
                     # try:
                     #     transfer_pattern = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "rb"))
                     # except (FileNotFoundError, pickle.UnpicklingError, EOFError):
-                    (_, transfer_pattern) = algorithm.arrival_chain_algorithm(target_labels)
+                    transfer_pattern = algorithm.arrival_chain_algorithm(target_labels)
                     #     pickle.dump(transfer_pattern, open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "wb"))
                     
                     logger.critical(f"{source} to {stop_id} is below: ")
