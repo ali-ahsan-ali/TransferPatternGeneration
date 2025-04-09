@@ -11,6 +11,7 @@ class TRAVEL_TYPE(Enum):
     NORMAL = 1
     TRANSFER = 2
     WAITINGCHAIN = 3
+    STAYINGONTRAIN = 4
 
     def __str__(self):
         return self.name
@@ -19,6 +20,7 @@ class TRAVEL_TYPE(Enum):
 class NODE_TYPE(Enum):
     ARRIVAL = 1
     TRANSFER = 2
+    DEPARTURE=3
 
     def __str__(self):
         return self.name

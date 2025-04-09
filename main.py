@@ -36,10 +36,12 @@ class Main:
         station_a: str,
         child_stop_a: str,
         station_a_arrival_time: str,
-        station_a_dropoff_type: 0, 
+        station_a_departure_time: str,
+        station_a_dropoff_type: str,
         station_b: str,
         child_stop_b: str,
         station_b_arrival_time: str,
+        station_b_departure_time: str,
         station_b_pickup_type: int = 0, 
         station_b_dropoff_type: int = 0,
         isInitial: bool = False
@@ -47,33 +49,41 @@ class Main:
         """Add nodes and edges for a vehicle connection between stations."""
         try:
             # Parse times
-            arr_time_a: timedelta  = parse_time_with_overflow(station_a_arrival_time)
-            arr_time_b: timedelta = parse_time_with_overflow(station_b_arrival_time)
+            dep_time = parse_time_with_overflow(station_a_departure_time)
+            arr_time: timedelta = parse_time_with_overflow(station_b_arrival_time)
                 
             # Create nodes
-            arr_time_a_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], arr_time_a, NODE_TYPE.ARRIVAL, station_a_dropoff_type)
-            arr_time_b_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time_b, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
+            dep_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.DEPARTURE, None)
+            arr_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time, NODE_TYPE.ARRIVAL, station_b_dropoff_type)
             
             # Add riding edge
-            self.graph.add_edge(arr_time_a_node, arr_time_b_node, TRAVEL_TYPE.NORMAL)
+            self.graph.add_edge(dep_node, arr_node, TRAVEL_TYPE.NORMAL)
 
-            # Algo adds transfer to next arrival time, but we need to cater for the first arrival time of each trip too. 
             if isInitial:
-                transfer_node_initial = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], arr_time_a, NODE_TYPE.TRANSFER, None)
-                self.graph.add_edge(transfer_node_initial, arr_time_a_node, TRAVEL_TYPE.WAITINGCHAIN)
+                intitial_arr_time: timedelta = parse_time_with_overflow(station_a_arrival_time)
+                intitial_arr_node = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], intitial_arr_time, NODE_TYPE.ARRIVAL, station_a_dropoff_type)
+                transfer_node_initial = Node(station_a, self.parser.stops[station_a]["stop_name"], child_stop_a, self.parser.stops[child_stop_a]["stop_name"], dep_time, NODE_TYPE.TRANSFER, None)
+                self.graph.add_edge(transfer_node_initial, dep_node, TRAVEL_TYPE.WAITINGCHAIN)
+                self.graph.add_edge(intitial_arr_node, dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
 
-            # Create transfer node at arrival time
-            if station_b_pickup_type == 0:
-                transfer_node = Node(station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], arr_time_b, NODE_TYPE.TRANSFER, None)
-                self.graph.add_edge(transfer_node, arr_time_b_node, TRAVEL_TYPE.WAITINGCHAIN)
-            else:
-                logger.debug(f"{station_a}, {self.parser.stops[station_a]["stop_name"]}, {child_stop_a} {self.parser.stops[station_b]["stop_name"]} {station_b}, {self.parser.stops[station_b]["stop_name"]} {child_stop_b} shits fucked for {station_b_pickup_type}")
+            # If vehicle continues, add staying edge
+            if station_b_departure_time:
+                next_dep_time = parse_time_with_overflow(station_b_departure_time)
+                next_dep_node = Node(
+                    station_b, self.parser.stops[station_b]["stop_name"], child_stop_b, self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.DEPARTURE, None
+                )
+                self.graph.add_edge(arr_node, next_dep_node, TRAVEL_TYPE.STAYINGONTRAIN)
+
+                # Create transfer node at arrival time
+                if station_b_pickup_type == 0:
+                    transfer_node = Node(
+                        station_b, self.parser.stops[station_b]["stop_name"], child_stop_b,  self.parser.stops[child_stop_b]["stop_name"], next_dep_time, NODE_TYPE.TRANSFER, None
+                    )
+                    self.graph.add_edge(transfer_node, next_dep_node, TRAVEL_TYPE.WAITINGCHAIN)
+                    
+                else:
+                    logger.debug(f"{station_a}, {self.parser.stops[station_a]["stop_name"]}, {child_stop_a} {self.parser.stops[station_b]["stop_name"]} {station_b}, {self.parser.stops[station_b]["stop_name"]} {child_stop_b} shits fucked for {station_b_pickup_type} at {next_dep_time}")
             
-               
-            logger.debug(
-                f"Added vehicle connection from {station_a} to {station_b}"
-            )
-
         except Exception as e:
             logger.error(f"Error adding vehicle connection: {e}")
             raise
@@ -108,6 +118,13 @@ class Main:
                         )
                         break
                     j += 1
+            # elif nodes[i].node_type == NODE_TYPE.DEPARTURE:
+            #     # Connect predecessor to successor. Now transfers are straight to arrival nodes.
+            #     for predecessor in self.graph.graph.predecessors(nodes[i]):
+            #         for successor in self.graph.graph.successors(nodes[i]):
+            #             self.graph.add_edge(predecessor, successor, TRAVEL_TYPE.NORMAL)
+                
+            #     self.graph.graph.remove_node(nodes[i])
     
 if __name__ == "__main__":
     # Configuration
@@ -158,7 +175,7 @@ if __name__ == "__main__":
                         while i < length - 1 and stop_times[i]["pickup_type"] != 0:
                             i+= 1
                             
-                    if i == length - 1 :  break
+                    if i == length - 1 :  continue
                     
                     j = i+1
                         
@@ -166,14 +183,15 @@ if __name__ == "__main__":
                         main.parser.stops[stop_times[i]["stop_id"]]["parent_station"],
                         stop_times[i]["stop_id"],
                         stop_times[i]["arrival_time"],
+                        stop_times[i]["departure_time"],
                         stop_times[i]["drop_off_type"],
                         main.parser.stops[stop_times[j]["stop_id"]]["parent_station"],
                         stop_times[j]["stop_id"],
                         stop_times[j]["arrival_time"],
+                        stop_times[j]["departure_time"],
                         stop_times[j]["pickup_type"],
                         stop_times[j]["drop_off_type"],
                         isInitial
-
                     )
 
                     isInitial = False
