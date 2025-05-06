@@ -37,7 +37,7 @@ class Node:
     drop_off_type: Optional[int]
 
     def __str__(self):
-        return f"{self.platform_string_name}|{self.node_type}|{self.drop_off_type}@{self.time}"
+        return f"{self.platform_string_name}|{self.node_type}@{self.time}"
 
     def __lt__(self, other):
         if not isinstance(other, Node):

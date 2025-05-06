@@ -393,7 +393,7 @@ class MultiobjectiveDijkstra:
         result = node.station == target and node.node_type == NODE_TYPE.ARRIVAL
         return result
 
-    def arrival_chain_algorithm(self, optimal_labels: List[Label]):
+    def arrival_chain_algorithm(self, optimal_labels: List[Label]) -> Dict[str, List[Path]]:
         # Group labels by arrival time
         arrival_times = defaultdict(list)
         for label in optimal_labels:
@@ -438,38 +438,40 @@ class MultiobjectiveDijkstra:
                 
             final_optimal_path[current_time] = best
         
-        logger.critical("Checking if there is an arrival time that for all it's departures from source station, those departues leave before previous iterations that arrive earlier")
-        logger.critical("That means that the entire arrival time at the station is a unoptimal route. Probably going to the wrong platform.")
+        logger.debug("Checking if there is an arrival time that for all it's departures from source station, those departues leave before previous iterations that arrive earlier")
+        logger.debug("That means that the entire arrival time at the station is a unoptimal route. Probably going to the wrong platform.")
 
         final_optimal_paths = []
         for (i, current_time) in enumerate(sorted_times):
+            if i <= 0: continue 
+
             paths = final_optimal_path[current_time]
-            
-            copy_path = paths
-
-            for j in range(len(paths) - 1, 0):
-                if i <= 0: continue 
-
-                for k in range(0, i - 1):
+            copy_path = copy.deepcopy(paths)
+            for path in paths:
+                for k in range(i - 1, 0, -1):
                     previous_time_to_compare_with = sorted_times[k]
                     previous_paths= final_optimal_path[previous_time_to_compare_with]
+                    
                     for previous_path in previous_paths: 
-                        previous_start_time = previous_path.path[0].time
-                        
+                        previous_start_time = previous_path.short_path[0].time
+                        current_start_time = path.short_path[0].time
                         # is there an earlier arrival time that leaves after this "optimal" label. If so, its not optimal and remove this.
-                        if path.path[0].time > previous_start_time:
-                            del copy_path[j]
+                        
+                        if current_start_time <= previous_start_time:
+                            copy_path.remove(path)
+                            break
 
-                        if len(copy_path) == 0: break
-                    if len(copy_path) == 0: break
-                if len(copy_path) == 0: break
+                    if len(copy_path) == 0: 
+                        break
+                    if path not in copy_path: 
+                        break #You deleted it lol. 
 
+                if len(copy_path) == 0: 
+                    break
+            
             final_optimal_paths.extend(copy_path)
 
-        for path in final_optimal_paths:
-            logger.critical(path)
-
-        logger.critical("\n\n\n\n\n\n\n\n\n\n\n\n")
+        logger.debug("\n\n\n\n\n\n\n\n\n\n\n\n")
 
         # Group labels by arrival time and then find dominantlabels
         departure_times = defaultdict(list)
@@ -492,14 +494,11 @@ class MultiobjectiveDijkstra:
         # Sort departure times
         sorted_times = sorted(departure_times.keys())
 
-        transfer_pattern = set()
         for time in sorted_times:
             for optimal_path in departure_times[time]:
-                logger.critical(optimal_path)
-                node_list = [node.station_string_name for node in optimal_path.short_path]
-                transfer_pattern.add(tuple(node_list))
+                logger.debug(optimal_path)
 
-        return transfer_pattern
+        return departure_times
     
     def reconstruct_complete_path(self, label: Label) -> Path:
         """Reconstruct the path from a label."""
@@ -509,11 +508,10 @@ class MultiobjectiveDijkstra:
         while current:
             if current.node.node_type == NODE_TYPE.DEPARTURE and current.pred != None and current.pred.node.node_type == NODE_TYPE.TRANSFER:
                 short_path.append(current.node)
-            elif current.pred == None:
-                short_path.append(current.node)
 
             path.append(current.node)
             current = current.pred
+        
         path.reverse()
         short_path.reverse()
         

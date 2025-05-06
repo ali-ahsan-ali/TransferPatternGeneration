@@ -215,19 +215,21 @@ if __name__ == "__main__":
         
         stops = main.parser.stops.keys()
         for stop_id in stops:
+            # if stop_id != "200060": continue
+
             if main.parser.stops[stop_id]["parent_station"] == "" or main.parser.stops[stop_id]["parent_station"] == None:
-                if stop_id == "204420":
-                    target_labels = algorithm.find_target_labels(optimal_labels, stop_id)
-                    # try:
-                    #     transfer_pattern = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "rb"))
-                    # except (FileNotFoundError, pickle.UnpicklingError, EOFError):
-                    transfer_pattern = algorithm.arrival_chain_algorithm(target_labels)
-                    #     pickle.dump(transfer_pattern, open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "wb"))
-                    
-                    logger.critical(f"{source} to {stop_id} is below: ")
-                    for x in transfer_pattern:
-                        logger.critical(x)
-                    logger.critical("\n")
+                target_labels = algorithm.find_target_labels(optimal_labels, stop_id)
+                # try:
+                    # transfer_pattern = pickle.load(open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "rb"))
+                # except (FileNotFoundError, pickle.UnpicklingError, EOFError):
+                transfer_pattern = algorithm.arrival_chain_algorithm(target_labels)
+                    # pickle.dump(transfer_pattern, open(f"/home/ali/dev/TransferPatternGeneration/transfer_pattern/transfer_pattern_{source}_{stop_id}.pickle", "wb"))
+                
+                logger.critical(f"{source} to {stop_id} is below: ")
+                for time in transfer_pattern:
+                    for trip in transfer_pattern[time]:
+                        logger.critical(trip)
+                logger.critical("\n")
 
     except Exception as e:
         print(f"Error building graph: {e}")
