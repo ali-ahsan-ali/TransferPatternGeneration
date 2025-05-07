@@ -448,7 +448,7 @@ class MultiobjectiveDijkstra:
             paths = final_optimal_path[current_time]
             copy_path = copy.deepcopy(paths)
             for path in paths:
-                for k in range(i - 1, 0, -1):
+                for k in range(i - 1, -1, -1):
                     previous_time_to_compare_with = sorted_times[k]
                     previous_paths= final_optimal_path[previous_time_to_compare_with]
                     
