@@ -25,14 +25,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class Path:
-    def __init__(self, path: List[Node], cost: Tuple, short_path: List[Node], ):
+    def __init__(self, path: list, cost: tuple, short_path: list, isOptimal: bool = True):
         self.path = path
         self.cost = cost
         self.short_path = short_path
+        self.isOptimal = True
     
     def __repr__(self):
         path_str = " -> ".join(str(node) for node in self.short_path)
-        return f"Cost: {self.cost}, Path: {path_str}"
+        return f"Cost: {self.cost}, Path: {path_str}, Optimal: {self.isOptimal}"
     
     def __eq__(self, other):
         if not isinstance(other, Path):
@@ -437,7 +438,7 @@ class MultiobjectiveDijkstra:
                         break 
                 
             final_optimal_path[current_time] = best
-        
+
         logger.debug("Checking if there is an arrival time that for all it's departures from source station, those departues leave before previous iterations that arrive earlier")
         logger.debug("That means that the entire arrival time at the station is a unoptimal route. Probably going to the wrong platform.")
 
@@ -458,9 +459,14 @@ class MultiobjectiveDijkstra:
                         # is there an earlier arrival time that leaves after this "optimal" label. If so, its not optimal and remove this.
                         
                         if current_start_time <= previous_start_time:
-                            copy_path.remove(path)
+                            if path.cost[1] != 0: # I want the direct trip, its optimal according to the paper. 
+                                copy_path.remove(path)
+                            else:
+                                path.isOptimal = False
+                                copy_path[copy_path.index(path)] = path
                             break
 
+                    
                     if len(copy_path) == 0: 
                         break
                     if path not in copy_path: 
@@ -515,4 +521,4 @@ class MultiobjectiveDijkstra:
         path.reverse()
         short_path.reverse()
         
-        return Path(path, label.cost,short_path)
+        return Path(path, label.cost,short_path, True)
